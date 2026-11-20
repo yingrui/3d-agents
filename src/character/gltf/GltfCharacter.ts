@@ -58,7 +58,7 @@ type SmoothState = {
   pitch: number
 }
 
-const WAVE_SECONDS = 1.8
+const WAVE_SECONDS = 2.2
 
 /**
  * 通用 glTF / GLB 角色。
@@ -79,7 +79,7 @@ export class GltfCharacter implements CharacterAdapter {
   private mixer: THREE.AnimationMixer | null = null
   private lastGestureStart = 0
   private waveStart = -1
-  private arms = new Map<THREE.Object3D, { restDir: THREE.Vector3; sign: number }>()
+  private arms = new Map<THREE.Object3D, { sign: number; fore?: boolean }>()
 
   private smooth: SmoothState = {
     mouth: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
@@ -126,7 +126,14 @@ export class GltfCharacter implements CharacterAdapter {
   }
 
   private collect(root: THREE.Object3D) {
-    const wanted = ['Bip01_Head', 'Bip01_Neck', 'Bip01_Spine2', 'Bip01_L_UpperArm', 'Bip01_R_UpperArm']
+    const wanted = [
+      'Bip01_Head',
+      'Bip01_Neck',
+      'Bip01_Spine2',
+      'Bip01_L_UpperArm',
+      'Bip01_R_UpperArm',
+      'Bip01_R_Forearm',
+    ]
     const morphEntries: Array<{ name: string; slot: MorphSlot }> = []
 
     root.traverse((obj) => {
@@ -167,7 +174,7 @@ export class GltfCharacter implements CharacterAdapter {
     this.channels.jawOpen = pick('JawOpen')
   }
 
-  /** 记录两只上臂的静止方向和左右，用于世界空间姿态修正 */
+  /** 记录双臂骨骼，用于世界空间姿态修正 */
   private setupArms() {
     this.object.updateMatrixWorld(true)
     const sides: Array<[string, number]> = [
@@ -177,16 +184,10 @@ export class GltfCharacter implements CharacterAdapter {
     for (const [name, sign] of sides) {
       const bone = this.bones.get(name)
       if (!bone) continue
-      const child = bone.children.find((c) => (c as THREE.Bone).isBone) as THREE.Object3D | undefined
-      const bonePos = new THREE.Vector3()
-      bone.getWorldPosition(bonePos)
-      const childPos = new THREE.Vector3()
-      if (child) child.getWorldPosition(childPos)
-      else childPos.copy(bonePos).add(new THREE.Vector3(sign, 0, 0))
-      const restDir = childPos.sub(bonePos).normalize()
-      this.arms.set(bone, { restDir, sign })
+      this.arms.set(bone, { sign })
     }
-
+    const fore = this.bones.get('Bip01_R_Forearm')
+    if (fore) this.arms.set(fore, { sign: -1, fore: true })
   }
 
   private setupAnimations(source: THREE.AnimationClip[], profile: CharacterProfile) {
@@ -246,24 +247,45 @@ export class GltfCharacter implements CharacterAdapter {
     const waveT = this.waveStart >= 0 ? (nowSec - this.waveStart) / WAVE_SECONDS : 2
     if (waveT >= 1) this.waveStart = -1
 
-    // ---- 手臂：世界空间旋转，从 T/A-pose 拉到自然下垂，挥手时抬右臂 ----
-    for (const [bone, { restDir, sign }] of this.arms) {
+    // ---- 手臂：世界空间旋转，从 T/A-pose 拉到自然下垂；挥手时弯肘摆手 ----
+    const applyWorld = (bone: THREE.Object3D, target: THREE.Vector3, weight: number) => {
       const parent = bone.parent
-      if (!parent) continue
+      if (!parent) return
+      const child = bone.children.find((c) => (c as THREE.Bone).isBone)
+      const from = new THREE.Vector3()
+      bone.getWorldPosition(from)
+      const to = new THREE.Vector3()
+      if (child) child.getWorldPosition(to)
+      else to.copy(from).add(new THREE.Vector3(0, -1, 0))
+      const current = to.sub(from).normalize()
+      const q = new THREE.Quaternion().setFromUnitVectors(current, target)
+      const pq = parent.getWorldQuaternion(new THREE.Quaternion())
+      const delta = pq.clone().invert().multiply(q).multiply(pq)
+      if (weight < 1) delta.slerp(new THREE.Quaternion(), 1 - weight)
+      bone.quaternion.premultiply(delta)
+    }
+
+    for (const [bone, { sign, fore }] of this.arms) {
+      if (fore) {
+        if (sign < 0 && waveT >= 0 && waveT < 1) {
+          const raise = waveT < 0.2 ? waveT / 0.2 : waveT > 0.8 ? (1 - waveT) / 0.2 : 1
+          const swing = Math.sin(waveT * Math.PI * 6)
+          const target = new THREE.Vector3(0.05 + swing * 0.35, 0.92, 0.2).normalize()
+          applyWorld(bone, target, raise)
+        }
+        continue
+      }
 
       const target = new THREE.Vector3(sign * 0.15, -1, 0).normalize()
       if (sign < 0 && waveT >= 0 && waveT < 1) {
         const raise = waveT < 0.2 ? waveT / 0.2 : waveT > 0.8 ? (1 - waveT) / 0.2 : 1
-        const up = new THREE.Vector3(-0.68, 0.62, 0.1).normalize()
-        target.lerp(up, raise).normalize()
-        target.x += Math.sin(waveT * Math.PI * 6) * 0.15 * raise
+        // 上臂在身侧、略高于水平，肘部弯曲后前臂竖起
+        const out = new THREE.Vector3(-0.92, 0.18, 0.08).normalize()
+        target.lerp(out, raise).normalize()
+        target.x += Math.sin(waveT * Math.PI * 6) * 0.05 * raise
         target.normalize()
       }
-
-      const qWorld = new THREE.Quaternion().setFromUnitVectors(restDir, target)
-      const pq = parent.getWorldQuaternion(new THREE.Quaternion())
-      const deltaQ = pq.clone().invert().multiply(qWorld).multiply(pq)
-      bone.quaternion.premultiply(deltaQ)
+      applyWorld(bone, target, 1)
     }
 
     // ---- 口型 ----
