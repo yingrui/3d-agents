@@ -237,7 +237,17 @@ export class GltfCharacter implements CharacterAdapter {
     const s = this.smooth
     const age = performance.now() / 1000 - gesture.start
 
-    // 有烘焙动画时先推进 mixer（idle 身体动作），再叠加视线/表情
+    // 有烘焙动画时先推进 mixer（idle 身体动作），再叠加视线/表情。
+    // 注意：wave 片段里头部/颈部轨道被剥掉了，如果不先复位，
+    // 每帧 multiply 视线旋转会累积，头会越转越歪、脖子直接撕开。
+    if (this.mixer) {
+      const headRest = this.rest.get('Bip01_Head')
+      const neckRest = this.rest.get('Bip01_Neck')
+      const headBone = this.bones.get('Bip01_Head')
+      const neckBone = this.bones.get('Bip01_Neck')
+      if (headBone && headRest) headBone.quaternion.copy(headRest)
+      if (neckBone && neckRest) neckBone.quaternion.copy(neckRest)
+    }
     this.mixer?.update(dt)
 
     if (gesture.tag && gesture.start !== this.lastGestureStart) {
