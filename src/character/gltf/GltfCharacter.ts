@@ -79,6 +79,7 @@ export class GltfCharacter implements CharacterAdapter {
   private idleAction: THREE.AnimationAction | null = null
   private waveAction: THREE.AnimationAction | null = null
   private lastGestureStart = 0
+  private waveActive = false
 
   private smooth: SmoothState = {
     mouth: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
@@ -147,6 +148,7 @@ export class GltfCharacter implements CharacterAdapter {
 
       mixer.addEventListener('finished', (event) => {
         if (event.action !== this.waveAction) return
+        this.waveActive = false
         this.waveAction?.fadeOut(0.25)
         this.idleAction?.reset().fadeIn(0.3).play()
       })
@@ -155,6 +157,7 @@ export class GltfCharacter implements CharacterAdapter {
 
   private playWave() {
     if (!this.waveAction) return
+    this.waveActive = true
     this.waveAction.reset()
     this.waveAction.fadeIn(0.15).play()
     this.idleAction?.fadeOut(0.15)
@@ -249,6 +252,23 @@ export class GltfCharacter implements CharacterAdapter {
       if (neckBone && neckRest) neckBone.quaternion.copy(neckRest)
     }
     this.mixer?.update(dt)
+
+    // Rocketbox 动画基于 A-pose（手臂外张 45°），这里统一往下压，
+    // 播放手势时不压，避免把抬手的动作压回去
+    if (this.mixer && !this.waveActive) {
+      const lRest = this.rest.get('Bip01_L_UpperArm')
+      const rRest = this.rest.get('Bip01_R_UpperArm')
+      const lFore = this.rest.get('Bip01_L_Forearm')
+      const rFore = this.rest.get('Bip01_R_Forearm')
+      const l = this.bones.get('Bip01_L_UpperArm')
+      const r = this.bones.get('Bip01_R_UpperArm')
+      const lf = this.bones.get('Bip01_L_Forearm')
+      const rf = this.bones.get('Bip01_R_Forearm')
+      if (l && lRest) l.quaternion.copy(lRest).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
+      if (r && rRest) r.quaternion.copy(rRest).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
+      if (lf && lFore) lf.quaternion.copy(lFore).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.15, 0)))
+      if (rf && rFore) rf.quaternion.copy(rFore).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.15, 0)))
+    }
 
     if (gesture.tag && gesture.start !== this.lastGestureStart) {
       this.lastGestureStart = gesture.start
@@ -358,7 +378,7 @@ export class GltfCharacter implements CharacterAdapter {
       }
     }
 
-    // ---- 手臂：没有烘焙动画时才用固定 A-pose ----
+    // ---- 手臂：烘焙动画的 idle 一直在比划，这里把手臂拉回静止姿态 ----
     const lArm = this.bones.get('Bip01_L_UpperArm')
     const rArm = this.bones.get('Bip01_R_UpperArm')
     const lFore = this.bones.get('Bip01_L_Forearm')
