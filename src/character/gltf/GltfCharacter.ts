@@ -80,6 +80,7 @@ export class GltfCharacter implements CharacterAdapter {
   private waveAction: THREE.AnimationAction | null = null
   private lastGestureStart = 0
   private waveActive = false
+  private armFix = new Map<THREE.Object3D, THREE.Quaternion>()
 
   private smooth: SmoothState = {
     mouth: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
@@ -108,7 +109,30 @@ export class GltfCharacter implements CharacterAdapter {
     this.object.add(root)
     this.normalize(root, profile.height ?? 1.7)
     this.collect(root)
+    this.setupArmFix()
     this.setupAnimations(gltf.animations ?? [], profile)
+  }
+
+  /** 用世界空间旋转把 T/A-pose 的手臂转下来，绕开骨骼局部轴差异 */
+  private setupArmFix() {
+    this.object.updateMatrixWorld(true)
+    const sides: Array<[string, number]> = [
+      ['Bip01_L_UpperArm', 1],
+      ['Bip01_R_UpperArm', -1],
+    ]
+    for (const [name, sign] of sides) {
+      const bone = this.bones.get(name)
+      if (!bone) continue
+      const child = bone.children.find((c) => (c as THREE.Bone).isBone) as THREE.Object3D | undefined
+      const bonePos = new THREE.Vector3()
+      bone.getWorldPosition(bonePos)
+      const childPos = new THREE.Vector3()
+      if (child) child.getWorldPosition(childPos)
+      else childPos.copy(bonePos).add(new THREE.Vector3(sign, 0, 0))
+      const restDir = childPos.sub(bonePos).normalize()
+      const target = new THREE.Vector3(sign * 0.15, -1, 0).normalize()
+      this.armFix.set(bone, new THREE.Quaternion().setFromUnitVectors(restDir, target))
+    }
   }
 
   private setupAnimations(source: THREE.AnimationClip[], profile: CharacterProfile) {
@@ -253,21 +277,16 @@ export class GltfCharacter implements CharacterAdapter {
     }
     this.mixer?.update(dt)
 
-    // Rocketbox 动画基于 A-pose（手臂外张 45°），这里统一往下压，
+    // 烘焙动画基于 T/A-pose（手臂外张），用世界空间旋转统一转下来，
     // 播放手势时不压，避免把抬手的动作压回去
-    if (this.mixer && !this.waveActive) {
-      const lRest = this.rest.get('Bip01_L_UpperArm')
-      const rRest = this.rest.get('Bip01_R_UpperArm')
-      const lFore = this.rest.get('Bip01_L_Forearm')
-      const rFore = this.rest.get('Bip01_R_Forearm')
-      const l = this.bones.get('Bip01_L_UpperArm')
-      const r = this.bones.get('Bip01_R_UpperArm')
-      const lf = this.bones.get('Bip01_L_Forearm')
-      const rf = this.bones.get('Bip01_R_Forearm')
-      if (l && lRest) l.quaternion.copy(lRest).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
-      if (r && rRest) r.quaternion.copy(rRest).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
-      if (lf && lFore) lf.quaternion.copy(lFore).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.15, 0)))
-      if (rf && rFore) rf.quaternion.copy(rFore).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.15, 0)))
+    if (this.mixer && !this.waveActive && this.armFix.size) {
+      for (const [bone, qWorld] of this.armFix) {
+        const parent = bone.parent
+        if (!parent) continue
+        const pq = parent.getWorldQuaternion(new THREE.Quaternion())
+        const delta = pq.clone().invert().multiply(qWorld).multiply(pq)
+        bone.quaternion.premultiply(delta)
+      }
     }
 
     if (gesture.tag && gesture.start !== this.lastGestureStart) {
