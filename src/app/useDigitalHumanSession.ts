@@ -7,12 +7,15 @@ import { streamLLM, type ChatTurn } from '../conversation/llm'
 import { streamReply } from '../conversation/mock'
 import { pumpConversation } from '../conversation/pipeline'
 import type { Message, Phase } from '../shared/types'
+import type { CharacterProfile } from '../character/types'
 import type { Capabilities } from './useCapabilities'
 
-const WELCOME: Message = {
-  id: 'welcome',
-  role: 'assistant',
-  text: '你好，我是小岚。一个完全跑在浏览器里的 3D 数字人。点下面的话题，或者直接打字和我聊聊。',
+function welcomeMessage(profile: CharacterProfile): Message {
+  return {
+    id: 'welcome',
+    role: 'assistant',
+    text: `你好，我是${profile.displayName}。一个完全跑在浏览器里的 3D 数字人。点下面的话题，或者直接打字和我聊聊。`,
+  }
 }
 
 let seq = 0
@@ -24,8 +27,8 @@ const uid = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${seq++}`
  * 拆成三个独立 hook 会绕不开互相引用（语音状态要控制麦克风门限，
  * 麦克风打断又要取消语音），所以这里用一个聚合 hook，App 只负责布局。
  */
-export function useDigitalHumanSession(caps: Capabilities) {
-  const [messages, setMessages] = useState<Message[]>([WELCOME])
+export function useDigitalHumanSession(caps: Capabilities, profile: CharacterProfile) {
+  const [messages, setMessages] = useState<Message[]>([welcomeMessage(profile)])
   const [phase, setPhase] = useState<Phase>('idle')
   const [ttsError, setTtsError] = useState<string | null>(null)
   const [asrError, setAsrError] = useState<string | null>(null)
@@ -42,6 +45,8 @@ export function useDigitalHumanSession(caps: Capabilities) {
   const emotionTimerRef = useRef(0)
   const llmModeRef = useRef(caps.llm)
   llmModeRef.current = caps.llm
+  const profileRef = useRef(profile)
+  profileRef.current = profile
 
   // 语音引擎：云端 / 本地，同一套接口
   useEffect(() => {
@@ -76,6 +81,18 @@ export function useDigitalHumanSession(caps: Capabilities) {
       engineRef.current = null
     }
   }, [caps.tts])
+
+  // 切换角色 = 换一个人，清空对话与历史
+  useEffect(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    streamingRef.current = false
+    historyRef.current = []
+    resetEmotion()
+    setPartial('')
+    setMessages([welcomeMessage(profile)])
+    setPhase('idle')
+  }, [profile])
 
   useEffect(() => {
     phaseRef.current = phase
@@ -123,7 +140,7 @@ export function useDigitalHumanSession(caps: Capabilities) {
     void (async () => {
       try {
         const source = useLlm
-          ? streamLLM([...history, { role: 'user', content: text }], controller.signal)
+          ? streamLLM([...history, { role: 'user', content: text }], controller.signal, profileRef.current.persona)
           : streamReply(text, controller.signal)
 
         let started = false

@@ -666,3 +666,21 @@ input {
   box-shadow: 0 0 10px rgba(107, 184, 255, 0.9);
   animation: pulse 1.2s ease-in-out infinite;
 }
+
+
+.character-select {
+  margin-left: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #d8dbe3;
+  font-size: 11.5px;
+  outline: none;
+  cursor: pointer;
+}
+
+.character-select:hover {
+  border-color: rgba(255, 178, 107, 0.5);
+}

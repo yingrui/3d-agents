@@ -9,11 +9,12 @@ export type ChatTurn = { role: 'user' | 'assistant'; content: string }
 export async function* streamLLM(
   messages: ChatTurn[],
   signal: AbortSignal,
+  persona?: string,
 ): AsyncGenerator<string> {
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, persona }),
     signal,
   })
 

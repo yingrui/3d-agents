@@ -3,6 +3,7 @@ import { Scene } from '../character/Scene'
 import { ChatPanel } from '../components/ChatPanel'
 import type { Phase } from '../shared/types'
 import { useCapabilities } from './useCapabilities'
+import { CHARACTERS, DEFAULT_CHARACTER } from '../character/profiles'
 import { useDigitalHumanSession } from './useDigitalHumanSession'
 
 const STATUS_LABEL: Record<Phase, string> = {
@@ -14,11 +15,21 @@ const STATUS_LABEL: Record<Phase, string> = {
 
 export default function App() {
   const caps = useCapabilities()
-  const session = useDigitalHumanSession(caps)
+  const [characterId, setCharacterId] = useState(DEFAULT_CHARACTER.id)
+  const profile = CHARACTERS.find((item) => item.id === characterId) ?? DEFAULT_CHARACTER
+  const session = useDigitalHumanSession(caps, profile)
 
   const [progress, setProgress] = useState(0)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const switchCharacter = (id: string) => {
+    if (id === characterId) return
+    setCharacterId(id)
+    setReady(false)
+    setProgress(0)
+    setError(null)
+  }
 
   return (
     <div className="app">
@@ -26,6 +37,7 @@ export default function App() {
         <div className="stage-glow" />
         <div className="canvas-wrap">
           <Scene
+            profile={profile}
             onProgress={setProgress}
             onLoaded={() => setReady(true)}
             onError={(err) => {
@@ -40,10 +52,22 @@ export default function App() {
           <div className="brand-mark">◈</div>
           <div>
             <h1>
-              小岚 <span className="brand-tag">Stage 7</span>
+              {profile.displayName} <span className="brand-tag">Stage 7</span>
             </h1>
             <p>three.js · DeepSeek · Fun-ASR · Gesture</p>
           </div>
+          <select
+            className="character-select"
+            value={profile.id}
+            onChange={(event) => switchCharacter(event.target.value)}
+            aria-label="选择角色"
+          >
+            {CHARACTERS.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
         </header>
 
         <div className={`status status-${session.phase}`}>
@@ -97,6 +121,7 @@ export default function App() {
         micAvailable={caps.asr === 'cloud'}
         partial={session.partial}
         onToggleMic={session.toggleMic}
+        characterName={profile.displayName}
       />
     </div>
   )

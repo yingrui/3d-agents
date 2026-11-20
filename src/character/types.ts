@@ -13,11 +13,20 @@ export type Framing = {
 
 export type CharacterProfile = {
   id: string
+  /** UI 下拉里显示的名字 */
   name: string
+  /** 对话里自称的名字 */
+  displayName: string
+  /** 角色人设，传给 LLM 的 system prompt */
+  persona: string
   kind: CharacterKind
   url: string
   license: string
   framing: Framing
+  /** 资产朝向修正（弧度） */
+  rotationY?: number
+  /** 资产缩放修正 */
+  scale?: number
 }
 
 /** 每帧喂给角色的语义状态：和具体 rig 无关 */

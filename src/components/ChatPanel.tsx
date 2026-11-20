@@ -11,6 +11,7 @@ type Props = {
   micAvailable: boolean
   partial: string
   onToggleMic: () => void
+  characterName: string
 }
 
 const SUGGESTIONS = ['你好，介绍一下你自己', '口型是怎么对上声音的？', '你会做什么？']
@@ -32,6 +33,7 @@ export function ChatPanel({
   micAvailable,
   partial,
   onToggleMic,
+  characterName,
 }: Props) {
   const [value, setValue] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
@@ -65,7 +67,7 @@ export function ChatPanel({
         {messages.map((message) =>
           message.role === 'assistant' ? (
             <div className="msg assistant" key={message.id}>
-              <div className="avatar-dot">岚</div>
+              <div className="avatar-dot">{characterName.slice(0, 1)}</div>
               <div className="bubble">
                 {message.pending && !message.text ? (
                   <span className="typing" aria-label="正在输入">

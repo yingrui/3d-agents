@@ -1,15 +1,17 @@
 # 3d-agents
 
-浏览器里的实时 3D 数字人 —— **Stage 7：会听、会说、有表情、有一整套小动作**。
+浏览器里的实时 3D 数字人 —— **Stage 8：双角色 + 会听、会说、有表情、有小动作**。
 
 用 Three.js 实时渲染的 VRM 数字人，会看着你、眨眼呼吸，说话时口型跟着音频走，
-会根据对话内容笑、皱眉、歪头，还会点头、摇头、摊手、挥手：
+可以在「二次元的小岚」和「写实的 Maya」之间切换，每个角色有自己的设定和声线：
 
 ```
 麦克风 → VAD → Fun-ASR → DeepSeek（输出 [情绪]/[动作] 标签）→ TTS → 口型 + 表情 + 动作
 ```
 
 ![预览](docs/preview.png)
+
+![Maya](docs/maya.png)
 
 ## 快速开始
 
@@ -147,6 +149,7 @@ src/
     profiles.ts                # 角色清单（url / framing / license）
     createCharacter.ts         # kind → adapter 工厂
     vrm/VrmCharacter.ts        # VRM 实现
+    gltf/GltfCharacter.ts      # 通用 GLB 实现（骨骼 + morph target）
     gestures.ts                # 动作库（语义名 → 骨骼包络）
     driver.ts  Scene.tsx
   audio/
@@ -161,8 +164,23 @@ src/
 server/
   index.ts  health.ts  tts.ts  asr.ts  llm.ts
   shared/                      # 百炼域名/鉴权、WS 挂载、HTTP 小工具
-public/models/sample.vrm
+public/models/sample.vrm          # 小岚（VRM）
+public/models/rocketbox/maya.glb  # Maya（Rocketbox, MIT）
 ```
+
+## 角色
+
+| 角色 | 类型 | 资产 | 表情能力 |
+|---|---|---|---|
+| 小岚 | VRM | pixiv three-vrm 示例 | 5 元音 + VRM 预设表情 |
+| Maya | GLB | Microsoft Rocketbox `Female_Adult_07`（MIT） | 6 个 ARKit 形变（JawOpen / Smile / Blink / BrowInnerUp） |
+
+下拉切换角色会重新加载模型、清空对话历史、切换人设（`profile.persona` 会传给 LLM）。
+
+Maya 是写实系资产，但 coasty.ai 的转换版只保留了 6 个面部形变，
+所以口型是「下巴开合 + 微笑」的近似，精细度不如小岚的 5 元音；手部动作也暂时没有。
+
+资产授权见 `public/models/rocketbox/ATTRIBUTION.md` 与 `LICENSE-MICROSOFT-ROCKETBOX.txt`。
 
 ## 角色抽象（为写实路线铺路）
 
@@ -220,6 +238,7 @@ npm test    # vitest：情绪解析 / 对话管线 / 口型时间轴 / VAD
 - 麦克风采集用了 `ScriptProcessorNode`（已废弃但兼容性最好），生产建议换 AudioWorklet。
 - 情绪标签依赖模型遵守 prompt，偶尔会漏或一句话多个标签（取最后一个）。
 - 动作是程序化骨骼旋转，没有 IK；手部动作（摸下巴、指自己）暂时只做头部语义动作。
+- Maya 只有 6 个面部形变，口型是近似；写实资产的完整 ARKit 52 需要自己导出。
 - VRM 只有 5 个预设表情，复杂情绪（比如「尴尬」「得意」）只能靠组合近似。
 - 口型是 5 个元音的近似；写实资产需要 ARKit 52 形状。
 - 没有后处理、次表面散射、毛发物理 —— 真实感受资产与光照上限。
@@ -232,5 +251,6 @@ npm test    # vitest：情绪解析 / 对话管线 / 口型时间轴 / VAD
 
 ## 模型授权
 
-`public/models/sample.vrm` 来自 [pixiv/three-vrm](https://github.com/pixiv/three-vrm) 官方示例，
+`public/models/sample.vrm          # 小岚（VRM）
+public/models/rocketbox/maya.glb  # Maya（Rocketbox, MIT）` 来自 [pixiv/three-vrm](https://github.com/pixiv/three-vrm) 官方示例，
 版权 (c) 2022 pixiv Inc.，VRM 1.0 元数据允许再分发与商用。换模型前请先读该模型的 VRM 许可证。
