@@ -203,7 +203,7 @@ export class GltfCharacter implements CharacterAdapter {
     clip.tracks = clip.tracks.filter(
       (track) =>
         !/^Bip01\.(position|quaternion|scale)$/.test(track.name) &&
-        !/^Bip01_(Pelvis|Spine|Spine1|Spine2|Head|Neck)\.quaternion$/.test(track.name),
+        !/^Bip01_(Pelvis|Spine|Spine1|Spine2|Clavicle|L_Clavicle|R_Clavicle|Head|Neck)\.quaternion$/.test(track.name),
     )
 
     const mixer = new THREE.AnimationMixer(this.root!)
