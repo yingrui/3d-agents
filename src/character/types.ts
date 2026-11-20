@@ -35,6 +35,11 @@ export type CharacterProfile = {
   scale?: number
   /** 归一化后的身高（米），默认 1.7 */
   height?: number
+  /** 烘焙动画的裁剪帧区间（30fps 源） */
+  animations?: {
+    idle?: [number, number]
+    wave?: [number, number]
+  }
 }
 
 /** 每帧喂给角色的语义状态：和具体 rig 无关 */

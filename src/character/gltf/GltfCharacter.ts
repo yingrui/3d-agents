@@ -75,6 +75,11 @@ export class GltfCharacter implements CharacterAdapter {
   private channels = emptyChannels()
   private hasVisemes = false
 
+  private mixer: THREE.AnimationMixer | null = null
+  private idleAction: THREE.AnimationAction | null = null
+  private waveAction: THREE.AnimationAction | null = null
+  private lastGestureStart = 0
+
   private smooth: SmoothState = {
     mouth: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
     emotion: { happy: 0, sad: 0, angry: 0, surprised: 0, relaxed: 0 },
@@ -102,6 +107,57 @@ export class GltfCharacter implements CharacterAdapter {
     this.object.add(root)
     this.normalize(root, profile.height ?? 1.7)
     this.collect(root)
+    this.setupAnimations(gltf.animations ?? [], profile)
+  }
+
+  private setupAnimations(source: THREE.AnimationClip[], profile: CharacterProfile) {
+    if (!source.length) return
+
+    const idleSource = source.find((clip) => /idle/i.test(clip.name))
+    const waveSource = source.find((clip) => /wave|present/i.test(clip.name))
+
+    const mixer = new THREE.AnimationMixer(this.root!)
+    this.mixer = mixer
+
+    if (idleSource) {
+      // 30fps 源数据，截 10 秒循环
+      const clip = THREE.AnimationUtils.subclip(idleSource, 'Idle', ...(profile.animations?.idle ?? [0, 300]), 30)
+      clip.tracks = clip.tracks.filter(
+        (track) =>
+          !/^Bip01\.(position|quaternion|scale)$/.test(track.name) &&
+          !/^Bip01_Pelvis\.quaternion$/.test(track.name),
+      )
+      this.idleAction = mixer.clipAction(clip)
+      this.idleAction.setLoop(THREE.LoopRepeat, Infinity)
+      this.idleAction.play()
+    }
+
+    if (waveSource) {
+      // 选出右手抬到最高的一段（约 12–15 秒）
+      const clip = THREE.AnimationUtils.subclip(waveSource, 'Wave', ...(profile.animations?.wave ?? [90, 180]), 30)
+      // 这段动画会带着身体转向侧面；只保留手臂/手指，躯干与头用程序化控制
+      clip.tracks = clip.tracks.filter(
+        (track) =>
+          !/^Bip01\.(position|quaternion|scale)$/.test(track.name) &&
+          !/^Bip01_(Pelvis|Spine|Spine1|Spine2|Neck|Head)\.quaternion$/.test(track.name),
+      )
+      this.waveAction = mixer.clipAction(clip)
+      this.waveAction.setLoop(THREE.LoopOnce, 1)
+      this.waveAction.clampWhenFinished = true
+
+      mixer.addEventListener('finished', (event) => {
+        if (event.action !== this.waveAction) return
+        this.waveAction?.fadeOut(0.25)
+        this.idleAction?.reset().fadeIn(0.3).play()
+      })
+    }
+  }
+
+  private playWave() {
+    if (!this.waveAction) return
+    this.waveAction.reset()
+    this.waveAction.fadeIn(0.15).play()
+    this.idleAction?.fadeOut(0.15)
   }
 
   /** 把角色缩放到目标身高、脚底贴地，避免不同资产大小/位置不一致 */
@@ -180,6 +236,14 @@ export class GltfCharacter implements CharacterAdapter {
     const dt = Math.min(delta, 1 / 20)
     const s = this.smooth
     const age = performance.now() / 1000 - gesture.start
+
+    // 有烘焙动画时先推进 mixer（idle 身体动作），再叠加视线/表情
+    this.mixer?.update(dt)
+
+    if (gesture.tag && gesture.start !== this.lastGestureStart) {
+      this.lastGestureStart = gesture.start
+      if (gesture.tag === 'wave' || gesture.tag === 'goodbye') this.playWave()
+    }
 
     // ---- 口型 ----
     for (const key of VISEME_SHAPES) {
@@ -264,7 +328,9 @@ export class GltfCharacter implements CharacterAdapter {
         'YXZ',
       )
       const rest = this.rest.get('Bip01_Head')
-      if (rest) head.quaternion.copy(rest).multiply(new THREE.Quaternion().setFromEuler(euler))
+      const look = new THREE.Quaternion().setFromEuler(euler)
+      if (this.mixer) head.quaternion.multiply(look)
+      else if (rest) head.quaternion.copy(rest).multiply(look)
     }
 
     if (neck) {
@@ -276,31 +342,33 @@ export class GltfCharacter implements CharacterAdapter {
           0,
           'YXZ',
         )
-        neck.quaternion.copy(rest).multiply(new THREE.Quaternion().setFromEuler(euler))
+        const look = new THREE.Quaternion().setFromEuler(euler)
+        if (this.mixer) neck.quaternion.multiply(look)
+        else neck.quaternion.copy(rest).multiply(look)
       }
     }
 
-    // ---- 手臂：从 T-pose 放下来 ----
+    // ---- 手臂：没有烘焙动画时才用固定 A-pose ----
     const lArm = this.bones.get('Bip01_L_UpperArm')
     const rArm = this.bones.get('Bip01_R_UpperArm')
     const lFore = this.bones.get('Bip01_L_Forearm')
     const rFore = this.bones.get('Bip01_R_Forearm')
-    if (lArm && this.rest.get('Bip01_L_UpperArm')) {
+    if (!this.mixer && lArm && this.rest.get('Bip01_L_UpperArm')) {
       lArm.quaternion
         .copy(this.rest.get('Bip01_L_UpperArm')!)
         .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
     }
-    if (rArm && this.rest.get('Bip01_R_UpperArm')) {
+    if (!this.mixer && rArm && this.rest.get('Bip01_R_UpperArm')) {
       rArm.quaternion
         .copy(this.rest.get('Bip01_R_UpperArm')!)
         .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
     }
-    if (lFore && this.rest.get('Bip01_L_Forearm')) {
+    if (!this.mixer && lFore && this.rest.get('Bip01_L_Forearm')) {
       lFore.quaternion
         .copy(this.rest.get('Bip01_L_Forearm')!)
         .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.15, 0)))
     }
-    if (rFore && this.rest.get('Bip01_R_Forearm')) {
+    if (!this.mixer && rFore && this.rest.get('Bip01_R_Forearm')) {
       rFore.quaternion
         .copy(this.rest.get('Bip01_R_Forearm')!)
         .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.15, 0)))
@@ -309,7 +377,7 @@ export class GltfCharacter implements CharacterAdapter {
     // ---- 呼吸 ----
     const spine = this.bones.get('Bip01_Spine2')
     const spineRest = this.rest.get('Bip01_Spine2')
-    if (spine && spineRest) {
+    if (!this.mixer && spine && spineRest) {
       const breath = Math.sin(t * 1.45) * 0.012
       spine.quaternion
         .copy(spineRest)

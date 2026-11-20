@@ -34,10 +34,11 @@ export const MAYA: CharacterProfile = {
   url: '/models/rocketbox/maya.glb',
   license: 'Microsoft Rocketbox (MIT), adapted by coasty.ai',
   framing: {
-    camera: [0, 1.53, 1.48],
-    lookAt: [0, 1.5, 0],
+    camera: [0, 1.53, 1.6],
+    lookAt: [0, 1.48, 0],
     fov: 30,
   },
+  animations: { wave: [310, 400] },
 }
 
 /** Rocketbox Male_Adult_07 完整版：175 个形变，含 15 个 viseme */

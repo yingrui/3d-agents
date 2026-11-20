@@ -188,6 +188,9 @@ public/characters/*.jpg           # 选择页缩略图
 - **Sam** 是把 Rocketbox 的 `Male_Adult_07_facial.fbx` 用 Blender 重新导出的 GLB，
   保留了全部 175 个 shape key，所以口型是 15 个 viseme 直接驱动，明显更细。
   贴图取自 coasty.ai 的同角色 WebP 版本，需要在 Blender 里把 V 轴翻转一次才对得上。
+- **Sam / Maya 现在都有烘焙动画**：从 Rocketbox 动画库取 `gestic_talk` 与 `gestic_presentation`，
+  在 Blender 里挂到同一套 Bip01 骨架上导出。Idle 循环播放，`[wave]` 时交叉淡入一段抬手手势。
+  根骨骼的位移/旋转轨道被剥掉，避免角色走出画面或转身背对镜头。
 - **Maya** 是 coasty.ai 的轻量转换版（6 个形变），口型是近似；她适合演示「换一个写实角色」。
 - 两个 GLB 都会在加载时按包围盒归一化到 1.7m、脚底贴地，避免不同资产大小不一致。
 
@@ -249,6 +252,8 @@ npm test    # vitest：情绪解析 / 对话管线 / 口型时间轴 / VAD
 - 麦克风采集用了 `ScriptProcessorNode`（已废弃但兼容性最好），生产建议换 AudioWorklet。
 - 情绪标签依赖模型遵守 prompt，偶尔会漏或一句话多个标签（取最后一个）。
 - 动作是程序化骨骼旋转，没有 IK；手部动作（摸下巴、指自己）暂时只做头部语义动作。
+- Sam / Maya 的手势用的是 Rocketbox 的「展示」动画，不是标准挥手；真正挥手需要单独做一段 clip。
+- 两个写实 GLB 都在 20MB 左右，首次加载较慢。
 - Maya 只有 6 个面部形变，口型是近似；Sam 的 175 形变版本口型更好但仍是半写实资产。
 - Sam 的手臂用程序化旋转从 T-pose 放下来，姿态偏「展示」，还不是自然站姿。
 - VRM 只有 5 个预设表情，复杂情绪（比如「尴尬」「得意」）只能靠组合近似。
