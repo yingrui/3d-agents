@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Scene } from './avatar/Scene'
 import { ChatPanel } from './components/ChatPanel'
+import { parseEmotion } from './chat/emotion'
 import { streamLLM, speakable, type ChatTurn } from './chat/llm'
 import { streamReply } from './chat/mockBrain'
 import type { Message, Phase } from './chat/types'
 import { CloudTts } from './speech/CloudTts'
+import { applyEmotion, resetEmotion } from './avatar/driver'
 import { MicAsr } from './speech/MicAsr'
 import { SpeechController } from './speech/SpeechController'
 
@@ -66,6 +68,7 @@ export default function App() {
   })
   const phaseRef = useRef<Phase>('idle')
   const micOnRef = useRef(false)
+  const emotionTimerRef = useRef(0)
 
   // 问一下本地代理：TTS 和 LLM 各自有没有配置 Key
   useEffect(() => {
@@ -107,8 +110,12 @@ export default function App() {
     const handleState = (speaking: boolean) => {
       micRef.current?.setTtsActive(speaking)
       if (speaking) {
+        window.clearTimeout(emotionTimerRef.current)
         setPhase('speaking')
       } else {
+        // 说完几秒后回到平静表情，避免她一直保持笑/惊讶
+        window.clearTimeout(emotionTimerRef.current)
+        emotionTimerRef.current = window.setTimeout(() => resetEmotion(), 2500)
         setPhase((prev) => {
           if (prev !== 'speaking') return prev
           if (streamingRef.current) return 'thinking'
@@ -150,6 +157,7 @@ export default function App() {
   useEffect(() => {
     return () => {
       abortRef.current?.abort()
+      window.clearTimeout(emotionTimerRef.current)
       micRef.current?.stop()
       micRef.current = null
     }
@@ -165,6 +173,7 @@ export default function App() {
 
     cloudRef.current?.cancel()
     mockRef.current?.cancel()
+    resetEmotion()
     setTtsError(null)
     streamingRef.current = true
     setPhase('thinking')
@@ -182,9 +191,11 @@ export default function App() {
     const history = historyRef.current
 
     void (async () => {
-      let acc = ''
-      let spoken = 0
+      let raw = ''
+      let clean = ''
+      let fed = 0
       let cloudStarted = false
+      let lastTag = ''
       try {
         // 有 LLM 就走 DeepSeek 流式，没有就回落到本地关键词 mock
         const source = useLlm
@@ -192,26 +203,33 @@ export default function App() {
           : streamReply(text, controller.signal)
 
         for await (const chunk of source) {
-          acc += chunk
-          const shown = speakable(acc)
+          raw += chunk
+          const parsed = parseEmotion(raw)
+          clean = parsed.text
+          if (parsed.tag && parsed.tag !== lastTag) {
+            lastTag = parsed.tag
+            applyEmotion(parsed.tag)
+          }
+
           setMessages((prev) =>
-            prev.map((m) => (m.id === botId ? { ...m, text: shown, pending: false } : m)),
+            prev.map((m) => (m.id === botId ? { ...m, text: clean, pending: false } : m)),
           )
 
           if (cloud) {
-            // 云端 TTS：边吐字边喂，服务端自己分句，首包更早
+            // 云端 TTS：只喂「去掉标签之后新增的那一段」，标签不会被念出来
             if (!cloudStarted) {
               cloud.start()
               cloudStarted = true
             }
-            const clean = speakable(chunk)
-            if (clean) cloud.feed(clean)
+            const delta = speakable(clean.slice(fed))
+            if (delta) cloud.feed(delta)
+            fed = clean.length
           } else {
             // 本地 mock：凑够一句就送进语音队列
-            const cut = lastSentenceEnd(acc)
-            if (cut > spoken + 5) {
-              mockRef.current?.enqueue(acc.slice(spoken, cut))
-              spoken = cut
+            const cut = lastSentenceEnd(clean)
+            if (cut > fed + 5) {
+              mockRef.current?.enqueue(clean.slice(fed, cut))
+              fed = cut
             }
           }
         }
@@ -222,18 +240,18 @@ export default function App() {
             cloudStarted = true
           }
           cloud.finish()
-        } else if (acc.length > spoken) {
-          mockRef.current?.enqueue(acc.slice(spoken))
+        } else if (clean.length > fed) {
+          mockRef.current?.enqueue(clean.slice(fed))
         }
 
         setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, pending: false } : m)))
 
-        if (useLlm && acc.trim()) {
+        if (useLlm && clean.trim()) {
           // 只保留最近几轮，避免上下文无限增长
           const next: ChatTurn[] = [
             ...history,
             { role: 'user', content: text },
-            { role: 'assistant', content: acc },
+            { role: 'assistant', content: clean },
           ]
           historyRef.current = next.slice(-12)
         }
@@ -325,9 +343,9 @@ export default function App() {
           <div className="brand-mark">◈</div>
           <div>
             <h1>
-              小岚 <span className="brand-tag">Stage 4</span>
+              小岚 <span className="brand-tag">Stage 5</span>
             </h1>
-            <p>three.js · DeepSeek · Qwen TTS · Fun-ASR</p>
+            <p>three.js · DeepSeek · Fun-ASR · Emotion</p>
           </div>
         </header>
 

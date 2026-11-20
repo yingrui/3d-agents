@@ -1,12 +1,12 @@
 # 3d-agents
 
-浏览器里的实时 3D 数字人 —— **Stage 4：开口就能聊**。
+浏览器里的实时 3D 数字人 —— **Stage 5：会听、会说、有表情**。
 
-用 Three.js 实时渲染的 VRM 数字人，会看着你、眨眼呼吸，说话时口型跟着音频走。
-现在链路是完整的语音对话：
+用 Three.js 实时渲染的 VRM 数字人，会看着你、眨眼呼吸，说话时口型跟着音频走，
+还会根据对话内容笑、皱眉、歪头。现在链路是完整的语音对话 + 情绪：
 
 ```
-麦克风 → Silero 式本地 VAD → Fun-ASR 实时识别 → DeepSeek → 百炼 TTS → 口型
+麦克风 → VAD → Fun-ASR → DeepSeek（输出 [情绪] 标签）→ TTS → 口型 + 表情 + 小动作
 ```
 
 ![预览](docs/preview.png)
@@ -43,6 +43,7 @@ npm run preview   # 预览构建产物（没有代理，会自动回落本地模
  ├─ three.js / three-vrm        渲染、骨骼、表情
  ├─ MicAsr                      getUserMedia → 降采样 16k → RMS VAD → PCM
  ├─ CloudTts                    WebAudio 播放 + 口型时钟（TTS 时间戳）
+ ├─ 情绪解析                     [happy] 等标签 → expression + 一次性手势
  └─ ws /api/asr · ws /api/tts · fetch /api/chat
         ↕
 Vite 插件（本地代理，Key 只在这里）
@@ -79,6 +80,14 @@ TTS 播放时把 VAD 门限抬高 2.5 倍、要求持续 4 帧才触发，否则
 **8. ASR 词表提升专有名词。**
 `ASR_CONTEXT=小岚` 会作为领域词表传给 Fun-ASR，实测能把「小兰/小蓝」纠正成「小岚」。
 
+**9. 表情靠标签，不靠猜。**
+System prompt 要求每句开头带 `[happy]` / `[sad]` / `[thinking]` 等标签，
+流式解析时把标签剥掉再显示和朗读；标签可能被切成 `[hap` + `py]`，所以清理时要顺手去掉末尾未闭合的 `[`。
+
+**10. happy 的权重不能给满。**
+VRoid 的 `happy` 预设会眯眼，给 0.75 以上她会一直闭着眼像睡着了；0.45 才是「在笑」。
+说完 2.5 秒后表情自动回到平静，不然会一直挂着笑。
+
 ## 可调参数（都在 .env）
 
 | 变量 | 默认 | 说明 |
@@ -88,6 +97,7 @@ TTS 播放时把 VAD 门限抬高 2.5 倍、要求持续 4 帧才触发，否则
 | `ASR_CONTEXT` | `小岚` | 领域词表，帮专有名词识别 |
 | `VAD_THRESHOLD` | `0.02` | RMS 门限。安静房间 0.02；吵就调高 |
 | `VAD_SILENCE_MS` | `700` | 静音多久算说完。400 灵敏，800 从容 |
+| `ASR_CONTEXT` | `小岚` | 领域词表，帮专有名词识别 |
 | `DASHSCOPE_TTS_MODEL` | `qwen-audio-3.1-tts-flash` | 语音合成模型 |
 | `DASHSCOPE_TTS_VOICE` | `longanhuan_v3.1` | 音色 |
 
@@ -102,6 +112,7 @@ src/
     SpeechController.ts  # 本地回落
     visemes.ts       # 韵母/时间戳 → 口型
   chat/
+    emotion.ts       # 情绪标签解析（含流式半截标签）
     llm.ts           # SSE 解析 + 文本清洗
     mockBrain.ts     # 无 LLM 时兜底
   components/ChatPanel.tsx
@@ -136,13 +147,15 @@ public/models/sample.vrm
 - 外放时回声仍然会影响打断，**建议戴耳机**演示。
 - 每句话单独开一个 ASR 任务，句间有 ~100ms 的连接开销。
 - 麦克风采集用了 `ScriptProcessorNode`（已废弃但兼容性最好），生产建议换 AudioWorklet。
+- 情绪标签依赖模型遵守 prompt，偶尔会漏或一句话多个标签（取最后一个）。
+- VRM 只有 5 个预设表情，复杂情绪（比如「尴尬」「得意」）只能靠组合近似。
 - 口型是 5 个元音的近似；写实资产需要 ARKit 52 形状。
 - 没有后处理、次表面散射、毛发物理 —— 真实感受资产与光照上限。
 
 ## 下一步
 
-- 表情/手势：LLM 输出情绪标签 → 映射 expression + 预置动作
 - 写实资产（MetaHuman / CC4）+ TSL 皮肤 + 后处理
+- 手势库：挥手、摊手、思考摸下巴（现在只有程序化点头/歪头）
 - 多轮打断优化：VAD + 语义端点（semantic endpointing）
 
 ## 模型授权

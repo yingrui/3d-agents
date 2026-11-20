@@ -3,7 +3,8 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
-import { driver, VISEME_SHAPES, type VisemeShape } from './driver'
+import type { EmotionTag } from '../chat/emotion'
+import { driver, VISEME_SHAPES, type EmotionState, type VisemeShape } from './driver'
 
 type Props = {
   url: string
@@ -14,7 +15,7 @@ type Props = {
 
 type SmoothState = {
   mouth: Record<VisemeShape, number>
-  happy: number
+  emotion: EmotionState
   blink: number
   nextBlink: number
   blinkT: number
@@ -23,6 +24,26 @@ type SmoothState = {
 }
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
+
+/** 一次性小动作：按时间指数衰减，不需要动画片段 */
+function gestureOffset(type: EmotionTag, age: number) {
+  const decay = Math.exp(-age * 2.2)
+  switch (type) {
+    case 'happy':
+    case 'excited':
+      return { x: Math.sin(age * 9) * 0.022 * decay, y: 0, z: Math.sin(age * 9 + 1) * 0.02 * decay }
+    case 'surprised':
+      return { x: -0.13 * decay, y: 0, z: 0 }
+    case 'sad':
+      return { x: 0.12 * decay, y: 0, z: 0 }
+    case 'thinking':
+      return { x: 0.03 * decay, y: 0.13 * decay, z: 0.15 * decay }
+    case 'angry':
+      return { x: 0.06 * decay, y: 0, z: 0 }
+    default:
+      return { x: 0, y: 0, z: 0.04 * decay }
+  }
+}
 
 /**
  * 一个「会呼吸、会眨眼、会看你、会对口型」的 VRM 角色。
@@ -37,7 +58,7 @@ export function Avatar({ url, onProgress, onLoaded, onError }: Props) {
 
   const smooth = useRef<SmoothState>({
     mouth: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
-    happy: 0.12,
+    emotion: { happy: 0, sad: 0, angry: 0, surprised: 0, relaxed: 0.12 },
     blink: 0,
     nextBlink: 2.4,
     blinkT: -1,
@@ -132,10 +153,12 @@ export function Avatar({ url, onProgress, onLoaded, onError }: Props) {
       s.pitch += (pitch - s.pitch) * k
 
       const speak = driver.speaking ? 1 : 0
+      const age = performance.now() / 1000 - driver.gesture.start
+      const gesture = driver.gesture.start ? gestureOffset(driver.gesture.type, age) : { x: 0, y: 0, z: 0 }
       head.rotation.set(
-        s.pitch + Math.sin(t * 0.9) * 0.012 + Math.sin(t * 6.2) * 0.006 * speak,
-        s.yaw * 0.6 + Math.sin(t * 0.63) * 0.012,
-        Math.sin(t * 0.41) * 0.012,
+        s.pitch + Math.sin(t * 0.9) * 0.012 + Math.sin(t * 6.2) * 0.006 * speak + gesture.x,
+        s.yaw * 0.6 + Math.sin(t * 0.63) * 0.012 + gesture.y,
+        Math.sin(t * 0.41) * 0.012 + gesture.z,
       )
     }
     if (neck) {
@@ -180,10 +203,13 @@ export function Avatar({ url, onProgress, onLoaded, onError }: Props) {
       em?.setValue(key, Math.min(1, s.mouth[key] * 0.92))
     }
 
-    // ---- 情绪：说话时嘴角微微上扬（可被 driver.emotion 覆盖） ----
-    const happyTarget = Math.max(0.1 + (driver.speaking ? 0.08 : 0), driver.emotion.happy)
-    s.happy += (happyTarget - s.happy) * (1 - Math.exp(-dt * 2.5))
-    em?.setValue('happy', s.happy)
+    // ---- 表情：向情绪标签的目标值平滑，起得快、收得慢 ----
+    for (const key of ['happy', 'sad', 'angry', 'surprised', 'relaxed'] as const) {
+      const target = driver.emotion[key]
+      const tau = target > s.emotion[key] ? 0.18 : 0.55
+      s.emotion[key] += (target - s.emotion[key]) * (1 - Math.exp(-dt / tau))
+      em?.setValue(key, s.emotion[key])
+    }
 
     // ---- 视线目标（世界坐标，带一点微扫视） ----
     lookTarget.position.set(
