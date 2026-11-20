@@ -19,6 +19,12 @@ export type CharacterProfile = {
   displayName: string
   /** 角色人设，传给 LLM 的 system prompt */
   persona: string
+  /** 选择页的一句风格标签 */
+  tagline: string
+  /** 选择页的简介 */
+  blurb: string
+  /** 选择页缩略图 */
+  thumbnail: string
   kind: CharacterKind
   url: string
   license: string
@@ -27,6 +33,8 @@ export type CharacterProfile = {
   rotationY?: number
   /** 资产缩放修正 */
   scale?: number
+  /** 归一化后的身高（米），默认 1.7 */
+  height?: number
 }
 
 /** 每帧喂给角色的语义状态：和具体 rig 无关 */

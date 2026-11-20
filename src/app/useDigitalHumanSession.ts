@@ -191,6 +191,18 @@ export function useDigitalHumanSession(caps: Capabilities, profile: CharacterPro
     })()
   }, [])
 
+  const stop = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    streamingRef.current = false
+    engineRef.current?.cancel()
+    micRef.current?.stop()
+    micRef.current = null
+    setMicOn(false)
+    setPartial('')
+    setPhase('idle')
+  }, [])
+
   const toggleMic = useCallback(async () => {
     if (micRef.current?.active) {
       micRef.current.stop()
@@ -241,6 +253,7 @@ export function useDigitalHumanSession(caps: Capabilities, profile: CharacterPro
     messages,
     phase,
     send,
+    stop,
     toggleMic,
     micOn,
     partial,

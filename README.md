@@ -1,17 +1,19 @@
 # 3d-agents
 
-浏览器里的实时 3D 数字人 —— **Stage 8：双角色 + 会听、会说、有表情、有小动作**。
+浏览器里的实时 3D 数字人 —— **Stage 8：多角色 + 选择页 + 会听、会说、有表情**。
 
 用 Three.js 实时渲染的 VRM 数字人，会看着你、眨眼呼吸，说话时口型跟着音频走，
-可以在「二次元的小岚」和「写实的 Maya」之间切换，每个角色有自己的设定和声线：
+刷新页面先进入角色选择页，选一个数字人再开始对话。每个角色有自己的外形、设定和声音：
 
 ```
 麦克风 → VAD → Fun-ASR → DeepSeek（输出 [情绪]/[动作] 标签）→ TTS → 口型 + 表情 + 动作
 ```
 
+![选择角色](docs/select.png)
+
 ![预览](docs/preview.png)
 
-![Maya](docs/maya.png)
+![Sam](docs/sam.png)
 
 ## 快速开始
 
@@ -149,7 +151,7 @@ src/
     profiles.ts                # 角色清单（url / framing / license）
     createCharacter.ts         # kind → adapter 工厂
     vrm/VrmCharacter.ts        # VRM 实现
-    gltf/GltfCharacter.ts      # 通用 GLB 实现（骨骼 + morph target）
+    gltf/GltfCharacter.ts      # 通用 GLB 实现（骨骼 + morph target + viseme 检测）
     gestures.ts                # 动作库（语义名 → 骨骼包络）
     driver.ts  Scene.tsx
   audio/
@@ -159,13 +161,17 @@ src/
   conversation/
     pipeline.ts                # token → 净文本 / 标签 / 语音增量（纯函数）
     tags.ts  llm.ts  mock.ts  text.ts
-  components/ChatPanel.tsx
+  components/
+    ChatPanel.tsx
+    CharacterSelect.tsx        # 角色选择页
   shared/types.ts
 server/
   index.ts  health.ts  tts.ts  asr.ts  llm.ts
   shared/                      # 百炼域名/鉴权、WS 挂载、HTTP 小工具
 public/models/sample.vrm          # 小岚（VRM）
-public/models/rocketbox/maya.glb  # Maya（Rocketbox, MIT）
+public/models/rocketbox/maya.glb  # Maya（Rocketbox 轻量版, MIT）
+public/models/rocketbox/sam.glb   # Sam（Rocketbox 完整 175 形变, MIT）
+public/characters/*.jpg           # 选择页缩略图
 ```
 
 ## 角色
@@ -174,11 +180,16 @@ public/models/rocketbox/maya.glb  # Maya（Rocketbox, MIT）
 |---|---|---|---|
 | 小岚 | VRM | pixiv three-vrm 示例 | 5 元音 + VRM 预设表情 |
 | Maya | GLB | Microsoft Rocketbox `Female_Adult_07`（MIT） | 6 个 ARKit 形变（JawOpen / Smile / Blink / BrowInnerUp） |
+| Sam | GLB | `Male_Adult_07_facial.fbx` 本地转 GLB（MIT） | **175 个形变：15 个 viseme + 48 FACS + ARKit** |
 
-下拉切换角色会重新加载模型、清空对话历史、切换人设（`profile.persona` 会传给 LLM）。
+刷新页面会停在选择页；进入对话后点「← 换角色」可以返回。
+切换角色会重新加载模型、清空对话历史、切换人设（`profile.persona` 会传给 LLM）。
 
-Maya 是写实系资产，但 coasty.ai 的转换版只保留了 6 个面部形变，
-所以口型是「下巴开合 + 微笑」的近似，精细度不如小岚的 5 元音；手部动作也暂时没有。
+- **Sam** 是把 Rocketbox 的 `Male_Adult_07_facial.fbx` 用 Blender 重新导出的 GLB，
+  保留了全部 175 个 shape key，所以口型是 15 个 viseme 直接驱动，明显更细。
+  贴图取自 coasty.ai 的同角色 WebP 版本，需要在 Blender 里把 V 轴翻转一次才对得上。
+- **Maya** 是 coasty.ai 的轻量转换版（6 个形变），口型是近似；她适合演示「换一个写实角色」。
+- 两个 GLB 都会在加载时按包围盒归一化到 1.7m、脚底贴地，避免不同资产大小不一致。
 
 资产授权见 `public/models/rocketbox/ATTRIBUTION.md` 与 `LICENSE-MICROSOFT-ROCKETBOX.txt`。
 
@@ -238,7 +249,8 @@ npm test    # vitest：情绪解析 / 对话管线 / 口型时间轴 / VAD
 - 麦克风采集用了 `ScriptProcessorNode`（已废弃但兼容性最好），生产建议换 AudioWorklet。
 - 情绪标签依赖模型遵守 prompt，偶尔会漏或一句话多个标签（取最后一个）。
 - 动作是程序化骨骼旋转，没有 IK；手部动作（摸下巴、指自己）暂时只做头部语义动作。
-- Maya 只有 6 个面部形变，口型是近似；写实资产的完整 ARKit 52 需要自己导出。
+- Maya 只有 6 个面部形变，口型是近似；Sam 的 175 形变版本口型更好但仍是半写实资产。
+- Sam 的手臂用程序化旋转从 T-pose 放下来，姿态偏「展示」，还不是自然站姿。
 - VRM 只有 5 个预设表情，复杂情绪（比如「尴尬」「得意」）只能靠组合近似。
 - 口型是 5 个元音的近似；写实资产需要 ARKit 52 形状。
 - 没有后处理、次表面散射、毛发物理 —— 真实感受资产与光照上限。
@@ -252,5 +264,7 @@ npm test    # vitest：情绪解析 / 对话管线 / 口型时间轴 / VAD
 ## 模型授权
 
 `public/models/sample.vrm          # 小岚（VRM）
-public/models/rocketbox/maya.glb  # Maya（Rocketbox, MIT）` 来自 [pixiv/three-vrm](https://github.com/pixiv/three-vrm) 官方示例，
+public/models/rocketbox/maya.glb  # Maya（Rocketbox 轻量版, MIT）
+public/models/rocketbox/sam.glb   # Sam（Rocketbox 完整 175 形变, MIT）
+public/characters/*.jpg           # 选择页缩略图` 来自 [pixiv/three-vrm](https://github.com/pixiv/three-vrm) 官方示例，
 版权 (c) 2022 pixiv Inc.，VRM 1.0 元数据允许再分发与商用。换模型前请先读该模型的 VRM 许可证。

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Scene } from '../character/Scene'
+import { CharacterSelect } from '../components/CharacterSelect'
 import { ChatPanel } from '../components/ChatPanel'
 import type { Phase } from '../shared/types'
 import { useCapabilities } from './useCapabilities'
@@ -16,6 +17,7 @@ const STATUS_LABEL: Record<Phase, string> = {
 export default function App() {
   const caps = useCapabilities()
   const [characterId, setCharacterId] = useState(DEFAULT_CHARACTER.id)
+  const [screen, setScreen] = useState<'select' | 'chat'>('select')
   const profile = CHARACTERS.find((item) => item.id === characterId) ?? DEFAULT_CHARACTER
   const session = useDigitalHumanSession(caps, profile)
 
@@ -29,6 +31,21 @@ export default function App() {
     setReady(false)
     setProgress(0)
     setError(null)
+  }
+
+  if (screen === 'select') {
+    return (
+      <CharacterSelect
+        characters={CHARACTERS}
+        onSelect={(id) => {
+          setCharacterId(id)
+          setReady(false)
+          setProgress(0)
+          setError(null)
+          setScreen('chat')
+        }}
+      />
+    )
   }
 
   return (
@@ -52,7 +69,7 @@ export default function App() {
           <div className="brand-mark">◈</div>
           <div>
             <h1>
-              {profile.displayName} <span className="brand-tag">Stage 7</span>
+              {profile.displayName} <span className="brand-tag">Stage 8</span>
             </h1>
             <p>three.js · DeepSeek · Fun-ASR · Gesture</p>
           </div>
@@ -68,6 +85,17 @@ export default function App() {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className="back-btn"
+            onClick={() => {
+              session.stop()
+              setReady(false)
+              setScreen('select')
+            }}
+          >
+            ← 换角色
+          </button>
         </header>
 
         <div className={`status status-${session.phase}`}>

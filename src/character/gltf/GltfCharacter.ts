@@ -8,6 +8,47 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
 
 type MorphSlot = { mesh: THREE.Mesh; index: number }
 
+type Channels = {
+  visemes: Partial<Record<VisemeShape, MorphSlot[]>>
+  blinkL: MorphSlot[]
+  blinkR: MorphSlot[]
+  smileL: MorphSlot[]
+  smileR: MorphSlot[]
+  frownL: MorphSlot[]
+  frownR: MorphSlot[]
+  browInner: MorphSlot[]
+  browOuterL: MorphSlot[]
+  browOuterR: MorphSlot[]
+  browDownL: MorphSlot[]
+  browDownR: MorphSlot[]
+  jawOpen: MorphSlot[]
+}
+
+const emptyChannels = (): Channels => ({
+  visemes: {},
+  blinkL: [],
+  blinkR: [],
+  smileL: [],
+  smileR: [],
+  frownL: [],
+  frownR: [],
+  browInner: [],
+  browOuterL: [],
+  browOuterR: [],
+  browDownL: [],
+  browDownR: [],
+  jawOpen: [],
+})
+
+/** Rocketbox 的 15 个 viseme 形变名 */
+const VISEME_TOKENS: Record<VisemeShape, string> = {
+  aa: 'AA_VI_10_aa',
+  ee: 'AA_VI_11_E',
+  ih: 'AA_VI_12_I',
+  oh: 'AA_VI_13_O',
+  ou: 'AA_VI_14_U',
+}
+
 type SmoothState = {
   mouth: Record<VisemeShape, number>
   emotion: EmotionState
@@ -21,8 +62,9 @@ type SmoothState = {
 /**
  * 通用 glTF / GLB 角色。
  *
- * 适配「网格 + 骨骼 + morph target」的写实资产（Rocketbox / CC4 / MetaHuman 导出）。
- * 表情用 morph target 驱动，动作先用头/颈，手部留待烘焙 clip。
+ * 适配「网格 + 骨骼 + morph target」的写实资产：
+ * - 有 viseme 形变（Rocketbox 完整版）就逐元音驱动，口型更准
+ * - 只有 ARKit 子集（coasty 版）就退化成 JawOpen 近似
  */
 export class GltfCharacter implements CharacterAdapter {
   readonly object = new THREE.Group()
@@ -30,16 +72,8 @@ export class GltfCharacter implements CharacterAdapter {
   private root: THREE.Object3D | null = null
   private bones = new Map<string, THREE.Object3D>()
   private rest = new Map<string, THREE.Quaternion>()
-  private morphs = new Map<string, MorphSlot[]>()
-
-  private static readonly MORPH_NAMES = [
-    'JawOpen',
-    'MouthSmileLeft',
-    'MouthSmileRight',
-    'EyeBlinkLeft',
-    'EyeBlinkRight',
-    'BrowInnerUp',
-  ]
+  private channels = emptyChannels()
+  private hasVisemes = false
 
   private smooth: SmoothState = {
     mouth: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
@@ -62,17 +96,40 @@ export class GltfCharacter implements CharacterAdapter {
     root.scale.setScalar(profile.scale ?? 1)
     root.traverse((obj) => {
       obj.frustumCulled = false
-      const mesh = obj as THREE.Mesh
-      if (mesh.isMesh) mesh.castShadow = false
     })
 
     this.root = root
     this.object.add(root)
+    this.normalize(root, profile.height ?? 1.7)
     this.collect(root)
   }
 
+  /** 把角色缩放到目标身高、脚底贴地，避免不同资产大小/位置不一致 */
+  private normalize(root: THREE.Object3D, targetHeight: number) {
+    root.updateMatrixWorld(true)
+    const box = new THREE.Box3().setFromObject(root)
+    const height = box.max.y - box.min.y
+    if (height < 0.1) return
+
+    root.scale.multiplyScalar(targetHeight / height)
+    root.updateMatrixWorld(true)
+    const scaled = new THREE.Box3().setFromObject(root)
+    root.position.y -= scaled.min.y
+    root.updateMatrixWorld(true)
+  }
+
   private collect(root: THREE.Object3D) {
-    const wanted = ['Bip01_Head', 'Bip01_Neck', 'Bip01_Spine2', 'Bip01_L_UpperArm', 'Bip01_R_UpperArm']
+    const wanted = [
+      'Bip01_Head',
+      'Bip01_Neck',
+      'Bip01_Spine2',
+      'Bip01_L_UpperArm',
+      'Bip01_R_UpperArm',
+      'Bip01_L_Forearm',
+      'Bip01_R_Forearm',
+    ]
+    const morphEntries: Array<{ name: string; slot: MorphSlot }> = []
+
     root.traverse((obj) => {
       if (wanted.includes(obj.name)) {
         this.bones.set(obj.name, obj)
@@ -81,22 +138,39 @@ export class GltfCharacter implements CharacterAdapter {
       const mesh = obj as THREE.Mesh
       if (!mesh.isMesh || !mesh.morphTargetDictionary) return
       for (const [name, index] of Object.entries(mesh.morphTargetDictionary)) {
-        // target 名字形如 "blendShape1.AK_25_JawOpen"，按后缀匹配
-        const short = GltfCharacter.MORPH_NAMES.find((key) => name.includes(key))
-        if (!short) continue
-        const list = this.morphs.get(short) ?? []
-        list.push({ mesh, index })
-        this.morphs.set(short, list)
+        morphEntries.push({ name, slot: { mesh, index } })
       }
     })
+
+    const pick = (token: string) =>
+      morphEntries
+        .filter((entry) => entry.name.toLowerCase().includes(token.toLowerCase()))
+        .map((entry) => entry.slot)
+
+    this.channels = emptyChannels()
+    for (const shape of VISEME_SHAPES) {
+      const slots = pick(VISEME_TOKENS[shape])
+      if (slots.length) this.channels.visemes[shape] = slots
+    }
+    this.hasVisemes = Object.keys(this.channels.visemes).length > 0
+
+    this.channels.blinkL = pick('EyeBlinkLeft')
+    this.channels.blinkR = pick('EyeBlinkRight')
+    this.channels.smileL = pick('MouthSmileLeft')
+    this.channels.smileR = pick('MouthSmileRight')
+    this.channels.frownL = pick('MouthFrownLeft')
+    this.channels.frownR = pick('MouthFrownRight')
+    this.channels.browInner = pick('BrowInnerUp')
+    this.channels.browOuterL = pick('BrowOuterUpLeft')
+    this.channels.browOuterR = pick('BrowOuterUpRight')
+    this.channels.browDownL = pick('BrowDownLeft')
+    this.channels.browDownR = pick('BrowDownRight')
+    this.channels.jawOpen = pick('JawOpen')
   }
 
-  private setMorph(name: string, value: number) {
-    const slots = this.morphs.get(name)
-    if (!slots) return
+  private set(slots: MorphSlot[], value: number) {
     for (const { mesh, index } of slots) {
-      if (!mesh.morphTargetInfluences) continue
-      mesh.morphTargetInfluences[index] = value
+      if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = value
     }
   }
 
@@ -107,14 +181,14 @@ export class GltfCharacter implements CharacterAdapter {
     const s = this.smooth
     const age = performance.now() / 1000 - gesture.start
 
-    // ---- 口型平滑 ----
+    // ---- 口型 ----
     for (const key of VISEME_SHAPES) {
       const target = mouth[key]
       const tau = target > s.mouth[key] ? 0.045 : 0.085
       s.mouth[key] += (target - s.mouth[key]) * (1 - Math.exp(-dt / tau))
     }
 
-    // ---- 表情平滑 ----
+    // ---- 表情 ----
     for (const key of ['happy', 'sad', 'angry', 'surprised', 'relaxed'] as const) {
       const target = emotion[key]
       const tau = target > s.emotion[key] ? 0.18 : 0.55
@@ -140,17 +214,32 @@ export class GltfCharacter implements CharacterAdapter {
 
     const m = s.mouth
     const e = s.emotion
-    const jaw = m.aa * 0.85 + m.oh * 0.6 + m.ou * 0.35 + m.ee * 0.25 + m.ih * 0.18
-    const smile = e.happy * 0.8 + (m.ee + m.ih) * 0.2 + e.relaxed * 0.15
 
-    this.setMorph('JawOpen', clamp01(jaw * 0.9 + e.surprised * 0.2))
-    this.setMorph('MouthSmileLeft', clamp01(smile))
-    this.setMorph('MouthSmileRight', clamp01(smile))
-    this.setMorph('BrowInnerUp', clamp01(e.surprised * 0.7))
-    this.setMorph('EyeBlinkLeft', s.blink)
-    this.setMorph('EyeBlinkRight', s.blink)
+    if (this.hasVisemes) {
+      for (const shape of VISEME_SHAPES) {
+        const slots = this.channels.visemes[shape]
+        if (slots) this.set(slots, clamp01(m[shape] * 0.95))
+      }
+    } else {
+      const jaw = m.aa * 0.85 + m.oh * 0.6 + m.ou * 0.35 + m.ee * 0.25 + m.ih * 0.18
+      this.set(this.channels.jawOpen, clamp01(jaw * 0.9 + e.surprised * 0.2))
+    }
 
-    // ---- 头/颈：看向相机 + 动作叠加 ----
+    const smile = clamp01(e.happy * 0.8 + e.relaxed * 0.15)
+    const frown = clamp01(e.sad * 0.6)
+    this.set(this.channels.smileL, smile)
+    this.set(this.channels.smileR, smile)
+    this.set(this.channels.frownL, frown)
+    this.set(this.channels.frownR, frown)
+    this.set(this.channels.browInner, clamp01(e.surprised * 0.3 + e.sad * 0.25))
+    this.set(this.channels.browOuterL, clamp01(e.surprised * 0.7))
+    this.set(this.channels.browOuterR, clamp01(e.surprised * 0.7))
+    this.set(this.channels.browDownL, clamp01(e.angry * 0.6))
+    this.set(this.channels.browDownR, clamp01(e.angry * 0.6))
+    this.set(this.channels.blinkL, s.blink)
+    this.set(this.channels.blinkR, s.blink)
+
+    // ---- 头/颈 ----
     const head = this.bones.get('Bip01_Head')
     const neck = this.bones.get('Bip01_Neck')
     const pose = sampleGesture(gesture.tag, age)
@@ -171,7 +260,7 @@ export class GltfCharacter implements CharacterAdapter {
       const euler = new THREE.Euler(
         s.pitch + speak + (pose?.head?.x ?? 0),
         s.yaw * 0.7 + (pose?.head?.y ?? 0),
-        (pose?.head?.z ?? 0),
+        pose?.head?.z ?? 0,
         'YXZ',
       )
       const rest = this.rest.get('Bip01_Head')
@@ -189,6 +278,32 @@ export class GltfCharacter implements CharacterAdapter {
         )
         neck.quaternion.copy(rest).multiply(new THREE.Quaternion().setFromEuler(euler))
       }
+    }
+
+    // ---- 手臂：从 T-pose 放下来 ----
+    const lArm = this.bones.get('Bip01_L_UpperArm')
+    const rArm = this.bones.get('Bip01_R_UpperArm')
+    const lFore = this.bones.get('Bip01_L_Forearm')
+    const rFore = this.bones.get('Bip01_R_Forearm')
+    if (lArm && this.rest.get('Bip01_L_UpperArm')) {
+      lArm.quaternion
+        .copy(this.rest.get('Bip01_L_UpperArm')!)
+        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
+    }
+    if (rArm && this.rest.get('Bip01_R_UpperArm')) {
+      rArm.quaternion
+        .copy(this.rest.get('Bip01_R_UpperArm')!)
+        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
+    }
+    if (lFore && this.rest.get('Bip01_L_Forearm')) {
+      lFore.quaternion
+        .copy(this.rest.get('Bip01_L_Forearm')!)
+        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.15, 0)))
+    }
+    if (rFore && this.rest.get('Bip01_R_Forearm')) {
+      rFore.quaternion
+        .copy(this.rest.get('Bip01_R_Forearm')!)
+        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.15, 0)))
     }
 
     // ---- 呼吸 ----
