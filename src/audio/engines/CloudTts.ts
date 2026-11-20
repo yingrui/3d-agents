@@ -51,7 +51,10 @@ export class CloudTts implements SpeechEngine {
 
   onError?: (message: string) => void
 
-  constructor() {
+  private options: { voice?: string; instructions?: string }
+
+  constructor(options: { voice?: string; instructions?: string } = {}) {
+    this.options = options
     this.ctx = new AudioContext()
     this.gain = this.ctx.createGain()
     this.gain.gain.value = 1
@@ -84,7 +87,11 @@ export class CloudTts implements SpeechEngine {
     this.ws = ws
 
     ws.onopen = () => {
-      this.send({ type: 'start' })
+      this.send({
+        type: 'start',
+        voice: this.options.voice,
+        instructions: this.options.instructions,
+      })
       for (const message of this.queue) ws.send(message)
       this.queue = []
     }

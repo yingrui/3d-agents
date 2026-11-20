@@ -33,6 +33,10 @@ export type CharacterProfile = {
   rotationY?: number
   /** 资产缩放修正 */
   scale?: number
+  /** 云端 TTS 音色 id */
+  voice?: string
+  /** 音色风格指令（部分音色支持） */
+  voiceStyle?: string
   /** 归一化后的身高（米），默认 1.7 */
   height?: number
   /** 烘焙动画的裁剪帧区间（30fps 源） */

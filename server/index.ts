@@ -14,6 +14,10 @@ export function createServerPlugins(env: Env): Plugin[] {
   const tts = {
     model: env.DASHSCOPE_TTS_MODEL || 'qwen-audio-3.1-tts-flash',
     voice: env.DASHSCOPE_TTS_VOICE || 'longanhuan_v3.1',
+    voices: (env.DASHSCOPE_TTS_VOICES || '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean),
   }
 
   const asr = {

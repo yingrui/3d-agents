@@ -23,6 +23,8 @@ export type TtsPluginOptions = {
   workspaceId?: string
   model?: string
   voice?: string
+  /** 允许客户端切换的音色白名单 */
+  voices?: string[]
 }
 
 const SAMPLE_RATE = 22050
@@ -39,6 +41,8 @@ class TtsSession {
   private closed = false
   private samples = 0
   private idleTimer: NodeJS.Timeout | null = null
+  private voice: string | undefined
+  private instructions: string | undefined
 
   constructor(
     private client: WebSocket,
@@ -62,9 +66,17 @@ class TtsSession {
     this.idleTimer = setTimeout(() => this.close(), MAX_IDLE_MS)
   }
 
-  private onClientMessage(message: { type?: string; text?: string }) {
+  private onClientMessage(message: {
+    type?: string
+    text?: string
+    voice?: string
+    instructions?: string
+  }) {
     this.touch()
     if (message.type === 'start') {
+      const allowed = message.voice && this.options.voices.includes(message.voice)
+      this.voice = allowed ? message.voice : this.options.voice
+      this.instructions = message.instructions?.slice(0, 200)
       this.connect()
     } else if (message.type === 'text' && message.text) {
       if (this.started) this.sendText(message.text)
@@ -79,7 +91,8 @@ class TtsSession {
 
   private connect() {
     if (this.upstream) return
-    const { apiKey, workspaceId, model, voice } = this.options
+    const { apiKey, workspaceId, model } = this.options
+    const voice = this.voice ?? this.options.voice
     const upstream = new WebSocket(dashscopeWsUrl(workspaceId), {
       headers: dashscopeHeaders(apiKey),
     })
@@ -105,6 +118,7 @@ class TtsSession {
               enable_ssml: false,
               // 关键：开启后每个句子的 words[] 里带 begin_time / end_time（毫秒）
               word_timestamp_enabled: true,
+              ...(this.instructions ? { instructions: this.instructions } : {}),
             },
             input: {},
           },
@@ -245,6 +259,9 @@ export function dashscopeTts(options: TtsPluginOptions): Plugin {
     workspaceId: options.workspaceId ?? '',
     model: options.model ?? 'qwen-audio-3.1-tts-flash',
     voice: options.voice ?? 'longanhuan_v3.1',
+    voices: options.voices?.length
+      ? options.voices
+      : ['longanhuan_v3.1', 'longanlingxin_v3.1', 'longanyang_v3.1'],
   }
 
   return {

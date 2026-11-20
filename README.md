@@ -182,6 +182,16 @@ public/characters/*.jpg           # 选择页缩略图
 | Maya | GLB | Microsoft Rocketbox `Female_Adult_07`（MIT） | 6 个 ARKit 形变（JawOpen / Smile / Blink / BrowInnerUp） |
 | Sam | GLB | `Male_Adult_07_facial.fbx` 本地转 GLB（MIT） | **175 个形变：15 个 viseme + 48 FACS + ARKit** |
 
+每个角色有自己的云端音色（`.env` 里可改）：
+
+| 角色 | voice | 说明 |
+|---|---|---|
+| 小岚 | `longanhuan_v3.1` | 清亮女声 |
+| Maya | `longanlingxin_v3.1` | 温和女声 |
+| Sam | `longanyang_v3.1` | 青年男声（实测基频约 128Hz） |
+
+Sam 还会带一条 `voiceStyle` 指令（青年男性、轻微外国口音），部分音色/模型可能忽略这条指令。
+
 刷新页面会停在选择页；进入对话后点「← 换角色」可以返回。
 切换角色会重新加载模型、清空对话历史、切换人设（`profile.persona` 会传给 LLM）。
 

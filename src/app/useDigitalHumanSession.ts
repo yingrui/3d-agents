@@ -70,7 +70,10 @@ export function useDigitalHumanSession(caps: Capabilities, profile: CharacterPro
       })
     }
 
-    const engine = createSpeechEngine(caps.tts === 'cloud')
+    const engine = createSpeechEngine(caps.tts === 'cloud', {
+      voice: profile.voice,
+      instructions: profile.voiceStyle,
+    })
     engine.onError = (message) => setTtsError(message)
     engineRef.current = engine
     const off = engine.onState(handleState)
@@ -80,7 +83,7 @@ export function useDigitalHumanSession(caps: Capabilities, profile: CharacterPro
       engine.dispose()
       engineRef.current = null
     }
-  }, [caps.tts])
+  }, [caps.tts, profile.voice, profile.voiceStyle])
 
   // 切换角色 = 换一个人，清空对话与历史
   useEffect(() => {
