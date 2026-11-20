@@ -66,6 +66,8 @@ export class VrmCharacter implements CharacterAdapter {
     // 蒙皮网格包围盒不随骨骼更新，先关视锥剔除
     vrm.scene.traverse((obj) => {
       obj.frustumCulled = false
+      obj.castShadow = true
+      obj.receiveShadow = true
     })
 
     if (vrm.lookAt) vrm.lookAt.target = this.lookTarget
@@ -75,6 +77,36 @@ export class VrmCharacter implements CharacterAdapter {
     vrm.humanoid.getNormalizedBoneNode('rightUpperArm')?.rotation.set(0.05, -0.04, 1.24)
     vrm.humanoid.getNormalizedBoneNode('leftLowerArm')?.rotation.set(0, -0.14, 0)
     vrm.humanoid.getNormalizedBoneNode('rightLowerArm')?.rotation.set(0, 0.14, 0)
+
+    // MToon：轻微描边 + 稍微加强明暗分界，避免脸糊成一片
+    for (const material of vrm.materials ?? []) {
+      const mat = material as unknown as {
+        name?: string
+        color?: THREE.Color
+        outlineWidthFactor?: number
+        outlineColorFactor?: THREE.Color
+        shadingShiftFactor?: number
+        shadingToonyFactor?: number
+      }
+      if (mat.color) {
+        const name = mat.name ?? ''
+        if (name.startsWith('Tops')) mat.color.set(0xc9d9ea)
+        else if (name.startsWith('Bottoms')) mat.color.set(0x8b83a0)
+        else if (name.startsWith('Shoes')) mat.color.set(0x7d6f74)
+        else if (name.includes('SKIN')) mat.color.set(0xffe3d2)
+        else if (name.startsWith('Hair')) mat.color.set(0xf2e2d4)
+
+        // 皮肤/头发单独加强明暗分界，让五官有体积
+        const skin = name.includes('SKIN')
+        const hair = name.startsWith('Hair')
+        if (skin || hair) {
+          mat.shadingShiftFactor = skin ? -0.24 : -0.12
+          mat.shadingToonyFactor = 0.98
+          const shade = (mat as unknown as { shadeColorFactor?: THREE.Color }).shadeColorFactor
+          if (shade) shade.set(skin ? 0xf0c8bc : 0xc9a88e)
+        }
+      }
+    }
 
     this.vrm = vrm
     this.object.add(vrm.scene)

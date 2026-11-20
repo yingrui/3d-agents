@@ -38,6 +38,7 @@ export function Scene({ profile = DEFAULT_CHARACTER, onProgress, onLoaded, onErr
   return (
     <Canvas
       dpr={[1, 2]}
+      shadows
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       camera={{
         fov: profile.framing.fov,
@@ -46,16 +47,24 @@ export function Scene({ profile = DEFAULT_CHARACTER, onProgress, onLoaded, onErr
         far: 30,
       }}
       onCreated={({ gl }) => {
-        gl.toneMappingExposure = 1.0
+        gl.toneMappingExposure = 0.92
       }}
     >
       <Rig framing={profile.framing} />
 
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[2.1, 2.7, 2.6]} intensity={1.7} color="#fff4e8" />
-      <directionalLight position={[-2.6, 1.3, 1.9]} intensity={0.8} color="#a8c2ff" />
-      <directionalLight position={[0.3, 2.1, -2.6]} intensity={1.45} color="#ffcd9e" />
-      <pointLight position={[0, 1.18, 1.55]} intensity={0.35} color="#ffdcc0" />
+      <ambientLight intensity={0.32} />
+      <directionalLight
+        position={[2.1, 2.7, 2.6]}
+        intensity={1.35}
+        color="#fff0df"
+        castShadow
+        shadow-mapSize={[1024, 1024]}
+        shadow-bias={-0.0004}
+      />
+      <directionalLight position={[-2.6, 1.3, 1.9]} intensity={0.45} color="#9db4ff" />
+      <directionalLight position={[0.3, 2.1, -2.6]} intensity={1.1} color="#ffb98a" />
+      <directionalLight position={[0, 1.45, 2.4]} intensity={0.3} color="#ffd9c2" />
+      <pointLight position={[0, 1.18, 1.55]} intensity={0.2} color="#ffdcc0" />
 
       <Character
         profile={profile}
