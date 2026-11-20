@@ -5,6 +5,8 @@
  * 上层写入「目标值」，角色 adapter 在每帧做平滑插值。
  */
 import type { CharacterTag, GestureName } from '../conversation/tags'
+import { isGestureTag } from '../conversation/tags'
+import { GestureDirector } from './gestureDirector'
 
 export type VisemeShape = 'aa' | 'ih' | 'ou' | 'ee' | 'oh'
 
@@ -80,14 +82,20 @@ export function resetMouth() {
   driver.mouth = emptyMouth()
 }
 
+/** 动作调度器：高优先级打断，低优先级排队 */
+const gestureDirector = new GestureDirector((state) => {
+  driver.gesture = state
+})
+
 export function applyTag(tag: CharacterTag) {
+  // 表情立即切换，和动作互不阻塞
   driver.emotion = { ...emptyEmotion(), ...emotionForTag(tag) }
-  driver.gesture = { tag, start: performance.now() / 1000 }
+  if (isGestureTag(tag)) gestureDirector.request(tag)
 }
 
 export function resetEmotion() {
   driver.emotion = emptyEmotion()
-  driver.gesture = { tag: null, start: 0 }
+  gestureDirector.reset()
 }
 
 /** 给需要显式播放动作的地方用（比如未来的 UI 按钮） */

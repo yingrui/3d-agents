@@ -107,6 +107,21 @@ VRoid 的 `happy` 预设会眯眼，给 0.75 以上她会一直闭着眼像睡�
 语义名和调度层是共享的；接 MetaHuman 后可以换成烘焙好的 clip，上层不用改。
 动作时长、包络在 [gestures.ts](src/character/gestures.ts)，加动作就是加一个 case。
 
+### 动作优先级与队列
+
+一句话里出现多个动作标签时，由 [gestureDirector.ts](src/character/gestureDirector.ts) 调度：
+
+| 优先级 | 动作 |
+|---|---|
+| 3 | `wave` / `goodbye` |
+| 2 | `nod` / `shake_head` |
+| 1 | `shrug` / `think_chin` / `point_self` |
+
+- **高优先级打断低优先级**（比如说到一半跟你挥手，会立刻抬手）
+- **同优先级或低优先级排队**，当前动作播完再放，队列最多 2 个，重复动作去重
+- **表情不受队列影响**：标签到达立即切换，只有身体动作排队
+- 新的一轮对话会清空队列（`resetEmotion()`）
+
 ## 可调参数（都在 .env）
 
 | 变量 | 默认 | 说明 |
