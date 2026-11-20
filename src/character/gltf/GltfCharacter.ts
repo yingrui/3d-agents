@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VISEME_SHAPES, type EmotionState, type VisemeShape } from '../driver'
-import { sampleGesture } from '../gestures'
 import type { CharacterAdapter, CharacterInput, CharacterProfile } from '../types'
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
@@ -59,12 +58,14 @@ type SmoothState = {
   pitch: number
 }
 
+const WAVE_SECONDS = 1.8
+
 /**
  * 通用 glTF / GLB 角色。
  *
- * 适配「网格 + 骨骼 + morph target」的写实资产：
  * - 有 viseme 形变（Rocketbox 完整版）就逐元音驱动，口型更准
- * - 只有 ARKit 子集（coasty 版）就退化成 JawOpen 近似
+ * - 有烘焙动画就播 Idle；手臂另外用世界空间旋转修正到自然下垂
+ * - 挥手是程序化叠加，不依赖动画片段
  */
 export class GltfCharacter implements CharacterAdapter {
   readonly object = new THREE.Group()
@@ -76,11 +77,9 @@ export class GltfCharacter implements CharacterAdapter {
   private hasVisemes = false
 
   private mixer: THREE.AnimationMixer | null = null
-  private idleAction: THREE.AnimationAction | null = null
-  private waveAction: THREE.AnimationAction | null = null
   private lastGestureStart = 0
-  private waveActive = false
-  private armFix = new Map<THREE.Object3D, THREE.Quaternion>()
+  private waveStart = -1
+  private arms = new Map<THREE.Object3D, { restDir: THREE.Vector3; sign: number }>()
 
   private smooth: SmoothState = {
     mouth: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
@@ -109,91 +108,16 @@ export class GltfCharacter implements CharacterAdapter {
     this.object.add(root)
     this.normalize(root, profile.height ?? 1.7)
     this.collect(root)
-    this.setupArmFix()
+    this.setupArms()
     this.setupAnimations(gltf.animations ?? [], profile)
   }
 
-  /** 用世界空间旋转把 T/A-pose 的手臂转下来，绕开骨骼局部轴差异 */
-  private setupArmFix() {
-    this.object.updateMatrixWorld(true)
-    const sides: Array<[string, number]> = [
-      ['Bip01_L_UpperArm', 1],
-      ['Bip01_R_UpperArm', -1],
-    ]
-    for (const [name, sign] of sides) {
-      const bone = this.bones.get(name)
-      if (!bone) continue
-      const child = bone.children.find((c) => (c as THREE.Bone).isBone) as THREE.Object3D | undefined
-      const bonePos = new THREE.Vector3()
-      bone.getWorldPosition(bonePos)
-      const childPos = new THREE.Vector3()
-      if (child) child.getWorldPosition(childPos)
-      else childPos.copy(bonePos).add(new THREE.Vector3(sign, 0, 0))
-      const restDir = childPos.sub(bonePos).normalize()
-      const target = new THREE.Vector3(sign * 0.15, -1, 0).normalize()
-      this.armFix.set(bone, new THREE.Quaternion().setFromUnitVectors(restDir, target))
-    }
-  }
-
-  private setupAnimations(source: THREE.AnimationClip[], profile: CharacterProfile) {
-    if (!source.length) return
-
-    const idleSource = source.find((clip) => /idle/i.test(clip.name))
-    const waveSource = source.find((clip) => /wave|present/i.test(clip.name))
-
-    const mixer = new THREE.AnimationMixer(this.root!)
-    this.mixer = mixer
-
-    if (idleSource) {
-      // 30fps 源数据，截 10 秒循环
-      const clip = THREE.AnimationUtils.subclip(idleSource, 'Idle', ...(profile.animations?.idle ?? [0, 300]), 30)
-      clip.tracks = clip.tracks.filter(
-        (track) =>
-          !/^Bip01\.(position|quaternion|scale)$/.test(track.name) &&
-          !/^Bip01_Pelvis\.quaternion$/.test(track.name),
-      )
-      this.idleAction = mixer.clipAction(clip)
-      this.idleAction.setLoop(THREE.LoopRepeat, Infinity)
-      this.idleAction.play()
-    }
-
-    if (waveSource) {
-      // 选出右手抬到最高的一段（约 12–15 秒）
-      const clip = THREE.AnimationUtils.subclip(waveSource, 'Wave', ...(profile.animations?.wave ?? [90, 180]), 30)
-      // 这段动画会带着身体转向侧面；只保留手臂/手指，躯干与头用程序化控制
-      clip.tracks = clip.tracks.filter(
-        (track) =>
-          !/^Bip01\.(position|quaternion|scale)$/.test(track.name) &&
-          !/^Bip01_(Pelvis|Spine|Spine1|Spine2|Neck|Head)\.quaternion$/.test(track.name),
-      )
-      this.waveAction = mixer.clipAction(clip)
-      this.waveAction.setLoop(THREE.LoopOnce, 1)
-      this.waveAction.clampWhenFinished = true
-
-      mixer.addEventListener('finished', (event) => {
-        if (event.action !== this.waveAction) return
-        this.waveActive = false
-        this.waveAction?.fadeOut(0.25)
-        this.idleAction?.reset().fadeIn(0.3).play()
-      })
-    }
-  }
-
-  private playWave() {
-    if (!this.waveAction) return
-    this.waveActive = true
-    this.waveAction.reset()
-    this.waveAction.fadeIn(0.15).play()
-    this.idleAction?.fadeOut(0.15)
-  }
-
-  /** 把角色缩放到目标身高、脚底贴地，避免不同资产大小/位置不一致 */
+  /** 把角色缩放到目标身高、脚底贴地 */
   private normalize(root: THREE.Object3D, targetHeight: number) {
     root.updateMatrixWorld(true)
     const box = new THREE.Box3().setFromObject(root)
     const height = box.max.y - box.min.y
     if (height < 0.1) return
-
     root.scale.multiplyScalar(targetHeight / height)
     root.updateMatrixWorld(true)
     const scaled = new THREE.Box3().setFromObject(root)
@@ -202,15 +126,7 @@ export class GltfCharacter implements CharacterAdapter {
   }
 
   private collect(root: THREE.Object3D) {
-    const wanted = [
-      'Bip01_Head',
-      'Bip01_Neck',
-      'Bip01_Spine2',
-      'Bip01_L_UpperArm',
-      'Bip01_R_UpperArm',
-      'Bip01_L_Forearm',
-      'Bip01_R_Forearm',
-    ]
+    const wanted = ['Bip01_Head', 'Bip01_Neck', 'Bip01_Spine2', 'Bip01_L_UpperArm', 'Bip01_R_UpperArm']
     const morphEntries: Array<{ name: string; slot: MorphSlot }> = []
 
     root.traverse((obj) => {
@@ -251,6 +167,51 @@ export class GltfCharacter implements CharacterAdapter {
     this.channels.jawOpen = pick('JawOpen')
   }
 
+  /** 记录两只上臂的静止方向和左右，用于世界空间姿态修正 */
+  private setupArms() {
+    this.object.updateMatrixWorld(true)
+    const sides: Array<[string, number]> = [
+      ['Bip01_L_UpperArm', 1],
+      ['Bip01_R_UpperArm', -1],
+    ]
+    for (const [name, sign] of sides) {
+      const bone = this.bones.get(name)
+      if (!bone) continue
+      const child = bone.children.find((c) => (c as THREE.Bone).isBone) as THREE.Object3D | undefined
+      const bonePos = new THREE.Vector3()
+      bone.getWorldPosition(bonePos)
+      const childPos = new THREE.Vector3()
+      if (child) child.getWorldPosition(childPos)
+      else childPos.copy(bonePos).add(new THREE.Vector3(sign, 0, 0))
+      const restDir = childPos.sub(bonePos).normalize()
+      this.arms.set(bone, { restDir, sign })
+    }
+
+  }
+
+  private setupAnimations(source: THREE.AnimationClip[], profile: CharacterProfile) {
+    const idleSource = source.find((clip) => /idle/i.test(clip.name))
+    if (!idleSource) return
+
+    const clip = THREE.AnimationUtils.subclip(
+      idleSource,
+      'Idle',
+      ...(profile.animations?.idle ?? [0, 300]),
+      30,
+    )
+    clip.tracks = clip.tracks.filter(
+      (track) =>
+        !/^Bip01\.(position|quaternion|scale)$/.test(track.name) &&
+        !/^Bip01_Pelvis\.quaternion$/.test(track.name),
+    )
+
+    const mixer = new THREE.AnimationMixer(this.root!)
+    const action = mixer.clipAction(clip)
+    action.setLoop(THREE.LoopRepeat, Infinity)
+    action.play()
+    this.mixer = mixer
+  }
+
   private set(slots: MorphSlot[], value: number) {
     for (const { mesh, index } of slots) {
       if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = value
@@ -262,11 +223,8 @@ export class GltfCharacter implements CharacterAdapter {
     const { delta, time: t, camera, mouth, emotion, gesture, speaking } = input
     const dt = Math.min(delta, 1 / 20)
     const s = this.smooth
-    const age = performance.now() / 1000 - gesture.start
 
-    // 有烘焙动画时先推进 mixer（idle 身体动作），再叠加视线/表情。
-    // 注意：wave 片段里头部/颈部轨道被剥掉了，如果不先复位，
-    // 每帧 multiply 视线旋转会累积，头会越转越歪、脖子直接撕开。
+    // 有动画时先复位头/颈，再推进 mixer，避免视线旋转累积
     if (this.mixer) {
       const headRest = this.rest.get('Bip01_Head')
       const neckRest = this.rest.get('Bip01_Neck')
@@ -277,21 +235,35 @@ export class GltfCharacter implements CharacterAdapter {
     }
     this.mixer?.update(dt)
 
-    // 烘焙动画基于 T/A-pose（手臂外张），用世界空间旋转统一转下来，
-    // 播放手势时不压，避免把抬手的动作压回去
-    if (this.mixer && !this.waveActive && this.armFix.size) {
-      for (const [bone, qWorld] of this.armFix) {
-        const parent = bone.parent
-        if (!parent) continue
-        const pq = parent.getWorldQuaternion(new THREE.Quaternion())
-        const delta = pq.clone().invert().multiply(qWorld).multiply(pq)
-        bone.quaternion.premultiply(delta)
-      }
-    }
-
+    // ---- 手势：挥手用程序化目标方向 ----
     if (gesture.tag && gesture.start !== this.lastGestureStart) {
       this.lastGestureStart = gesture.start
-      if (gesture.tag === 'wave' || gesture.tag === 'goodbye') this.playWave()
+      if (gesture.tag === 'wave' || gesture.tag === 'goodbye') {
+        this.waveStart = performance.now() / 1000
+      }
+    }
+    const nowSec = performance.now() / 1000
+    const waveT = this.waveStart >= 0 ? (nowSec - this.waveStart) / WAVE_SECONDS : 2
+    if (waveT >= 1) this.waveStart = -1
+
+    // ---- 手臂：世界空间旋转，从 T/A-pose 拉到自然下垂，挥手时抬右臂 ----
+    for (const [bone, { restDir, sign }] of this.arms) {
+      const parent = bone.parent
+      if (!parent) continue
+
+      const target = new THREE.Vector3(sign * 0.15, -1, 0).normalize()
+      if (sign < 0 && waveT >= 0 && waveT < 1) {
+        const raise = waveT < 0.2 ? waveT / 0.2 : waveT > 0.8 ? (1 - waveT) / 0.2 : 1
+        const up = new THREE.Vector3(-0.68, 0.62, 0.1).normalize()
+        target.lerp(up, raise).normalize()
+        target.x += Math.sin(waveT * Math.PI * 6) * 0.15 * raise
+        target.normalize()
+      }
+
+      const qWorld = new THREE.Quaternion().setFromUnitVectors(restDir, target)
+      const pq = parent.getWorldQuaternion(new THREE.Quaternion())
+      const deltaQ = pq.clone().invert().multiply(qWorld).multiply(pq)
+      bone.quaternion.premultiply(deltaQ)
     }
 
     // ---- 口型 ----
@@ -352,10 +324,9 @@ export class GltfCharacter implements CharacterAdapter {
     this.set(this.channels.blinkL, s.blink)
     this.set(this.channels.blinkR, s.blink)
 
-    // ---- 头/颈 ----
+    // ---- 头/颈：看向相机（叠加在动画之上） ----
     const head = this.bones.get('Bip01_Head')
     const neck = this.bones.get('Bip01_Neck')
-    const pose = sampleGesture(gesture.tag, age)
 
     if (head) {
       const headPos = new THREE.Vector3()
@@ -370,67 +341,29 @@ export class GltfCharacter implements CharacterAdapter {
       s.pitch += (pitch - s.pitch) * k
 
       const speak = speaking ? Math.sin(t * 6.2) * 0.01 : 0
-      const euler = new THREE.Euler(
-        s.pitch + speak + (pose?.head?.x ?? 0),
-        s.yaw * 0.7 + (pose?.head?.y ?? 0),
-        pose?.head?.z ?? 0,
-        'YXZ',
+      const look = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(s.pitch + speak, s.yaw * 0.7, 0, 'YXZ'),
       )
-      const rest = this.rest.get('Bip01_Head')
-      const look = new THREE.Quaternion().setFromEuler(euler)
-      if (this.mixer) head.quaternion.multiply(look)
-      else if (rest) head.quaternion.copy(rest).multiply(look)
+      head.quaternion.multiply(look)
     }
 
     if (neck) {
-      const rest = this.rest.get('Bip01_Neck')
-      if (rest) {
-        const euler = new THREE.Euler(
-          (pose?.neck?.x ?? 0) + s.pitch * 0.2,
-          (pose?.neck?.y ?? 0) + s.yaw * 0.2,
-          0,
-          'YXZ',
-        )
-        const look = new THREE.Quaternion().setFromEuler(euler)
-        if (this.mixer) neck.quaternion.multiply(look)
-        else neck.quaternion.copy(rest).multiply(look)
+      const look = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(s.pitch * 0.2, s.yaw * 0.2, 0, 'YXZ'),
+      )
+      neck.quaternion.multiply(look)
+    }
+
+    // ---- 呼吸：没有动画时才程序化 ----
+    if (!this.mixer) {
+      const spine = this.bones.get('Bip01_Spine2')
+      const spineRest = this.rest.get('Bip01_Spine2')
+      if (spine && spineRest) {
+        const breath = Math.sin(t * 1.45) * 0.012
+        spine.quaternion
+          .copy(spineRest)
+          .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(breath, 0, 0)))
       }
-    }
-
-    // ---- 手臂：烘焙动画的 idle 一直在比划，这里把手臂拉回静止姿态 ----
-    const lArm = this.bones.get('Bip01_L_UpperArm')
-    const rArm = this.bones.get('Bip01_R_UpperArm')
-    const lFore = this.bones.get('Bip01_L_Forearm')
-    const rFore = this.bones.get('Bip01_R_Forearm')
-    if (!this.mixer && lArm && this.rest.get('Bip01_L_UpperArm')) {
-      lArm.quaternion
-        .copy(this.rest.get('Bip01_L_UpperArm')!)
-        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
-    }
-    if (!this.mixer && rArm && this.rest.get('Bip01_R_UpperArm')) {
-      rArm.quaternion
-        .copy(this.rest.get('Bip01_R_UpperArm')!)
-        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -1.15)))
-    }
-    if (!this.mixer && lFore && this.rest.get('Bip01_L_Forearm')) {
-      lFore.quaternion
-        .copy(this.rest.get('Bip01_L_Forearm')!)
-        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -0.15, 0)))
-    }
-    if (!this.mixer && rFore && this.rest.get('Bip01_R_Forearm')) {
-      rFore.quaternion
-        .copy(this.rest.get('Bip01_R_Forearm')!)
-        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.15, 0)))
-    }
-
-    // ---- 呼吸 ----
-    const spine = this.bones.get('Bip01_Spine2')
-    const spineRest = this.rest.get('Bip01_Spine2')
-    if (!this.mixer && spine && spineRest) {
-      const breath = Math.sin(t * 1.45) * 0.012
-      spine.quaternion
-        .copy(spineRest)
-        .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(breath, 0, 0)))
     }
   }
 

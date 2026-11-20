@@ -17,6 +17,9 @@ type Props = {
  */
 export function Character({ profile, onProgress, onLoaded, onError }: Props) {
   const adapter = useMemo(() => createCharacter(profile), [profile])
+  if (import.meta.env.DEV) {
+    ;(window as unknown as Record<string, unknown>).__character = adapter
+  }
   const camera = useThree((state) => state.camera)
 
   // 用 ref 存回调，避免父组件每次渲染都触发重新加载模型

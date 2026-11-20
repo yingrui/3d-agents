@@ -38,7 +38,6 @@ export const MAYA: CharacterProfile = {
     lookAt: [0, 1.48, 0],
     fov: 30,
   },
-  animations: { wave: [310, 400] },
 }
 
 /** Rocketbox Male_Adult_07 完整版：175 个形变，含 15 个 viseme */
@@ -55,8 +54,8 @@ export const SAM: CharacterProfile = {
   url: '/models/rocketbox/sam.glb',
   license: 'Microsoft Rocketbox (MIT), converted locally with Blender',
   framing: {
-    camera: [0, 1.45, 1.9],
-    lookAt: [0, 1.38, 0],
+    camera: [0, 1.45, 2.1],
+    lookAt: [0, 1.4, 0],
     fov: 30,
   },
 }

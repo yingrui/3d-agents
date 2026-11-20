@@ -38,7 +38,6 @@ export type CharacterProfile = {
   /** 烘焙动画的裁剪帧区间（30fps 源） */
   animations?: {
     idle?: [number, number]
-    wave?: [number, number]
   }
 }
 
