@@ -112,7 +112,12 @@ src/
     App.tsx                    # 只负责布局（~100 行）
     useCapabilities.ts         # /api/health → 三套能力开关
     useDigitalHumanSession.ts  # 对话 / 语音引擎 / 麦克风
-  character/                   # 渲染、骨骼、每帧动作、手势数学
+  character/
+    Character.tsx              # 每帧把语义状态喂给 adapter
+    profiles.ts                # 角色清单（url / framing / license）
+    createCharacter.ts         # kind → adapter 工厂
+    vrm/VrmCharacter.ts        # VRM 实现
+    driver.ts  gesture.ts  Scene.tsx
   audio/
     engines/                   # SpeechEngine 接口 + CloudTts/BrowserTts + 工厂
     mic/MicAsr.ts              # 麦克风 + VAD + ASR 会话
@@ -127,6 +132,27 @@ server/
   shared/                      # 百炼域名/鉴权、WS 挂载、HTTP 小工具
 public/models/sample.vrm
 ```
+
+## 角色抽象（为写实路线铺路）
+
+`CharacterAdapter` 把「角色怎么动」和「怎么对话」隔开：
+
+```ts
+interface CharacterAdapter {
+  readonly object: THREE.Object3D
+  load(profile: CharacterProfile, onProgress?): Promise<void>
+  update(input: CharacterInput): void
+  dispose(): void
+}
+```
+
+- `CharacterInput` 只有语义状态：5 个元音口型、情绪、动作名、是否在说话、相机
+- `CharacterProfile` 描述资产：`kind` / `url` / 取景参数 / 许可证
+- 现在只有 `VrmCharacter`
+- 接 MetaHuman 时新增 `MetaHumanCharacter` + 一条 profile，对话层一行不改
+
+`driver` 是唯一的语义状态源，只在 `Character.tsx` 里被读取并喂给 adapter。
+程序化动作（呼吸/眨眼/挥手）是兜底实现，任何角色都能继承这套语义。
 
 ## 测试
 
