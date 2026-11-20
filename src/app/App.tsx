@@ -40,7 +40,7 @@ export default function App() {
           <div className="brand-mark">◈</div>
           <div>
             <h1>
-              小岚 <span className="brand-tag">Stage 6</span>
+              小岚 <span className="brand-tag">Stage 7</span>
             </h1>
             <p>three.js · DeepSeek · Fun-ASR · Gesture</p>
           </div>

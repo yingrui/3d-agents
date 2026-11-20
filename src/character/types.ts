@@ -1,5 +1,5 @@
 import type * as THREE from 'three'
-import type { EmotionTag } from '../conversation/emotion'
+import type { CharacterTag } from '../conversation/tags'
 import type { EmotionState, MouthState } from './driver'
 
 export type CharacterKind = 'vrm' | 'gltf'
@@ -27,7 +27,7 @@ export type CharacterInput = {
   camera: THREE.Camera
   mouth: MouthState
   emotion: EmotionState
-  gesture: { type: EmotionTag; start: number }
+  gesture: { tag: CharacterTag | null; start: number }
   speaking: boolean
 }
 

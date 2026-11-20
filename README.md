@@ -1,12 +1,12 @@
 # 3d-agents
 
-浏览器里的实时 3D 数字人 —— **Stage 6：会听、会说、有表情、会挥手**。
+浏览器里的实时 3D 数字人 —— **Stage 7：会听、会说、有表情、有一整套小动作**。
 
 用 Three.js 实时渲染的 VRM 数字人，会看着你、眨眼呼吸，说话时口型跟着音频走，
-会根据对话内容笑、皱眉、歪头，你跟她打招呼她还会抬手挥一挥：
+会根据对话内容笑、皱眉、歪头，还会点头、摇头、摊手、挥手：
 
 ```
-麦克风 → VAD → Fun-ASR → DeepSeek（输出 [情绪]/[wave] 标签）→ TTS → 口型 + 表情 + 动作
+麦克风 → VAD → Fun-ASR → DeepSeek（输出 [情绪]/[动作] 标签）→ TTS → 口型 + 表情 + 动作
 ```
 
 ![预览](docs/preview.png)
@@ -88,9 +88,24 @@ System prompt 要求每句开头带 `[happy]` / `[sad]` / `[thinking]` 等标签
 VRoid 的 `happy` 预设会眯眼，给 0.75 以上她会一直闭着眼像睡着了；0.45 才是「在笑」。
 说完 2.5 秒后表情自动回到平静，不然会一直挂着笑。
 
-**11. 挥手是骨骼旋转 + 包络，不是动画片段。**
-`[wave]` 标签触发 1.8 秒的包络：上臂绕 Z 抬起、小臂折起、再叠一个正弦摆动。
-好处是零资源、随时可调；坏处是肘部比较僵，没有 IK，手也做不出掌心朝向的变化。
+**11. 动作库是「语义名 + 程序化兜底」，不是动画片段。**
+`[nod]` / `[shrug]` 这类标签触发一段包络，直接叠加骨骼旋转。好处是零资源、随时可调；
+坏处是没有 IK，`think_chin` / `point_self` 的手部动作做不出来，只能先做头部语义动作。
+
+## 动作库
+
+| 标签 | 动作 | 实现 |
+|---|---|---|
+| `[wave]` | 打招呼挥手 | 上臂抬起 + 小臂折起 + 正弦摆动 |
+| `[goodbye]` | 告别挥手 | 同上，节奏更慢 |
+| `[nod]` | 点头 | 头部俯仰振荡 |
+| `[shake_head]` | 摇头 | 头部左右摆动 |
+| `[shrug]` | 摊手 | 双臂外张 + 头部侧倾 |
+| `[think_chin]` | 思考 | 头部侧倾（手部待动作素材） |
+| `[point_self]` | 指自己 | 轻微前倾（手部待动作素材） |
+
+语义名和调度层是共享的；接 MetaHuman 后可以换成烘焙好的 clip，上层不用改。
+动作时长、包络在 [gestures.ts](src/character/gestures.ts)，加动作就是加一个 case。
 
 ## 可调参数（都在 .env）
 
@@ -117,14 +132,15 @@ src/
     profiles.ts                # 角色清单（url / framing / license）
     createCharacter.ts         # kind → adapter 工厂
     vrm/VrmCharacter.ts        # VRM 实现
-    driver.ts  gesture.ts  Scene.tsx
+    gestures.ts                # 动作库（语义名 → 骨骼包络）
+    driver.ts  Scene.tsx
   audio/
     engines/                   # SpeechEngine 接口 + CloudTts/BrowserTts + 工厂
     mic/MicAsr.ts              # 麦克风 + VAD + ASR 会话
     visemes.ts  vad.ts
   conversation/
-    pipeline.ts                # token → 净文本 / 情绪 / 语音增量（纯函数）
-    emotion.ts  llm.ts  mock.ts  text.ts
+    pipeline.ts                # token → 净文本 / 标签 / 语音增量（纯函数）
+    tags.ts  llm.ts  mock.ts  text.ts
   components/ChatPanel.tsx
   shared/types.ts
 server/
@@ -188,7 +204,7 @@ npm test    # vitest：情绪解析 / 对话管线 / 口型时间轴 / VAD
 - 每句话单独开一个 ASR 任务，句间有 ~100ms 的连接开销。
 - 麦克风采集用了 `ScriptProcessorNode`（已废弃但兼容性最好），生产建议换 AudioWorklet。
 - 情绪标签依赖模型遵守 prompt，偶尔会漏或一句话多个标签（取最后一个）。
-- 动作是程序化骨骼旋转，没有 IK / 动画片段，挥手时肘部偏僵、手会靠近画面边缘。
+- 动作是程序化骨骼旋转，没有 IK；手部动作（摸下巴、指自己）暂时只做头部语义动作。
 - VRM 只有 5 个预设表情，复杂情绪（比如「尴尬」「得意」）只能靠组合近似。
 - 口型是 5 个元音的近似；写实资产需要 ARKit 52 形状。
 - 没有后处理、次表面散射、毛发物理 —— 真实感受资产与光照上限。

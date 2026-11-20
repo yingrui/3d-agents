@@ -6,7 +6,7 @@ import {
   type EmotionState,
   type VisemeShape,
 } from '../driver'
-import { WAVE_DURATION, gestureOffset, waveOffset } from '../gesture'
+import { sampleGesture } from '../gestures'
 import type { CharacterAdapter, CharacterInput, CharacterProfile } from '../types'
 
 type SmoothState = {
@@ -89,6 +89,7 @@ export class VrmCharacter implements CharacterAdapter {
     const s = this.smooth
     const em = vrm.expressionManager
     const age = performance.now() / 1000 - gesture.start
+    const pose = sampleGesture(gesture.tag, age)
 
     // ---- 视线：头和脖子跟着镜头，眼睛再补一点微扫视 ----
     const head = vrm.humanoid.getNormalizedBoneNode('head')
@@ -108,40 +109,50 @@ export class VrmCharacter implements CharacterAdapter {
       s.pitch += (pitch - s.pitch) * k
 
       const speak = speaking ? 1 : 0
-      const headGesture = gesture.start ? gestureOffset(gesture.type, age) : { x: 0, y: 0, z: 0 }
       head.rotation.set(
-        s.pitch + Math.sin(t * 0.9) * 0.012 + Math.sin(t * 6.2) * 0.006 * speak + headGesture.x,
-        s.yaw * 0.6 + Math.sin(t * 0.63) * 0.012 + headGesture.y,
-        Math.sin(t * 0.41) * 0.012 + headGesture.z,
+        s.pitch + Math.sin(t * 0.9) * 0.012 + Math.sin(t * 6.2) * 0.006 * speak + (pose?.head?.x ?? 0),
+        s.yaw * 0.6 + Math.sin(t * 0.63) * 0.012 + (pose?.head?.y ?? 0),
+        Math.sin(t * 0.41) * 0.012 + (pose?.head?.z ?? 0),
       )
     }
     if (neck) {
-      neck.rotation.set(s.pitch * 0.3, s.yaw * 0.3, 0)
+      neck.rotation.set(
+        s.pitch * 0.3 + (pose?.neck?.x ?? 0),
+        s.yaw * 0.3 + (pose?.neck?.y ?? 0),
+        pose?.neck?.z ?? 0,
+      )
     }
 
     // ---- 呼吸 & 重心微移 ----
-    if (chest) chest.rotation.x = 0.025 + Math.sin(t * 1.45) * 0.012
+    if (chest) chest.rotation.x = 0.025 + Math.sin(t * 1.45) * 0.012 + (pose?.chest?.x ?? 0)
     if (spine) {
       spine.rotation.z = Math.sin(t * 0.45) * 0.01
       spine.rotation.y = Math.sin(t * 0.31) * 0.014
     }
 
-    // ---- 手臂：自然下垂 + 轻微摆动；挥手时临时抬起右臂 ----
+    // ---- 手臂：自然下垂 + 轻微摆动 + 动作库叠加 ----
     const sway = Math.sin(t * 0.8) * 0.02
-    const waving = gesture.type === 'wave' && age < WAVE_DURATION ? waveOffset(age) : null
+    const leftArm = pose?.leftUpperArm
+    const rightArm = pose?.rightUpperArm
+    const rightForearm = pose?.rightLowerArm
+
     vrm.humanoid
       .getNormalizedBoneNode('leftUpperArm')
-      ?.rotation.set(0.05, 0.04 + sway, -1.24 + sway * 0.5)
-    if (waving) {
-      vrm.humanoid
-        .getNormalizedBoneNode('rightUpperArm')
-        ?.rotation.set(0.05, -0.04, 1.24 - waving.raise + waving.sway)
-    } else {
-      vrm.humanoid
-        .getNormalizedBoneNode('rightUpperArm')
-        ?.rotation.set(0.05, -0.04 - sway, 1.24 - sway * 0.5)
-    }
-    vrm.humanoid.getNormalizedBoneNode('rightLowerArm')?.rotation.set(0, 0.14, waving?.bend ?? 0)
+      ?.rotation.set(
+        0.05 + (leftArm?.x ?? 0),
+        0.04 + sway + (leftArm?.y ?? 0),
+        -1.24 + sway * 0.5 + (leftArm?.z ?? 0),
+      )
+    vrm.humanoid
+      .getNormalizedBoneNode('rightUpperArm')
+      ?.rotation.set(
+        0.05 + (rightArm?.x ?? 0),
+        -0.04 - sway + (rightArm?.y ?? 0),
+        1.24 - sway * 0.5 + (rightArm?.z ?? 0),
+      )
+    vrm.humanoid
+      .getNormalizedBoneNode('rightLowerArm')
+      ?.rotation.set(0, 0.14, rightForearm?.z ?? 0)
 
     // ---- 眨眼：随机间隔，偶尔连眨 ----
     if (t > s.nextBlink) {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createSpeechEngine } from '../audio/engines/createEngine'
 import type { SpeechEngine } from '../audio/engines/types'
 import { MicAsr } from '../audio/mic/MicAsr'
-import { applyEmotion, resetEmotion } from '../character/driver'
+import { applyTag, resetEmotion } from '../character/driver'
 import { streamLLM, type ChatTurn } from '../conversation/llm'
 import { streamReply } from '../conversation/mock'
 import { pumpConversation } from '../conversation/pipeline'
@@ -132,7 +132,7 @@ export function useDigitalHumanSession(caps: Capabilities) {
             setMessages((prev) =>
               prev.map((m) => (m.id === botId ? { ...m, text: visible, pending: false } : m)),
             ),
-          onEmotion: (tag) => applyEmotion(tag),
+          onTag: (tag) => applyTag(tag),
           onSpeech: (delta) => {
             if (!engine) return
             if (!started) {

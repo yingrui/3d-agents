@@ -13,7 +13,7 @@ describe('pumpConversation', () => {
 
     const clean = await pumpConversation(chunks(['[hap', 'py]你好', '，世界。']), {
       onText: (value) => text.push(value),
-      onEmotion: (tag) => emotions.push(tag),
+      onTag: (tag) => emotions.push(tag),
       onSpeech: (delta) => speech.push(delta),
     })
 
@@ -27,7 +27,7 @@ describe('pumpConversation', () => {
     const emotions: string[] = []
     await pumpConversation(chunks(['[happy]好', '的', '[happy]呀']), {
       onText: () => {},
-      onEmotion: (tag) => emotions.push(tag),
+      onTag: (tag) => emotions.push(tag),
       onSpeech: () => {},
     })
     expect(emotions).toEqual(['happy'])

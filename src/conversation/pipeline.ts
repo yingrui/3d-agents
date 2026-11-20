@@ -7,12 +7,12 @@
  *   - onEmotion  情绪标签变化（驱动表情/动作）
  *   - onSpeech   新增的、可朗读的文本增量（给 TTS）
  */
-import { parseEmotion, type EmotionTag } from './emotion'
+import { parseTag, type CharacterTag } from './tags'
 import { speakable } from './text'
 
 export type ConversationSink = {
   onText: (text: string) => void
-  onEmotion: (tag: EmotionTag) => void
+  onTag: (tag: CharacterTag) => void
   onSpeech: (delta: string) => void
 }
 
@@ -22,17 +22,17 @@ export async function pumpConversation(
 ): Promise<string> {
   let raw = ''
   let clean = ''
-  let lastTag: EmotionTag | null = null
+  let lastTag: CharacterTag | null = null
   let fed = 0
 
   for await (const chunk of source) {
     raw += chunk
-    const parsed = parseEmotion(raw)
+    const parsed = parseTag(raw)
     clean = parsed.text
 
     if (parsed.tag && parsed.tag !== lastTag) {
       lastTag = parsed.tag
-      sink.onEmotion(parsed.tag)
+      sink.onTag(parsed.tag)
     }
 
     sink.onText(clean)
