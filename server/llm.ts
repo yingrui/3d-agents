@@ -7,7 +7,7 @@
  * Key 只存在服务端，浏览器拿不到。
  */
 import type { Plugin } from 'vite'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { readBody, sendJson } from './shared/http'
 
 export type LlmPluginOptions = {
   apiKey?: string
@@ -31,30 +31,6 @@ const SYSTEM_PROMPT = `你是小岚，一个跑在浏览器里的 3D 数字人�
 - 被问到技术实现时，可以简单说自己是 three.js 实时渲染 + 语音合成驱动的。
 - 用户的话可能来自语音识别，有错别字时按最合理的理解回答，不要纠正。`
 
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let size = 0
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > 256 * 1024) {
-        reject(new Error('body too large'))
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', reject)
-  })
-}
-
-function writeJson(res: ServerResponse, status: number, payload: unknown) {
-  res.statusCode = status
-  res.setHeader('content-type', 'application/json')
-  res.end(JSON.stringify(payload))
-}
-
 export function deepseekLlm(options: LlmPluginOptions): Plugin {
   const apiKey = options.apiKey ?? ''
   const baseUrl = (options.baseUrl ?? 'https://api.deepseek.com/v1').replace(/\/$/, '')
@@ -63,17 +39,13 @@ export function deepseekLlm(options: LlmPluginOptions): Plugin {
   return {
     name: 'deepseek-llm',
     configureServer(server) {
-      server.middlewares.use('/api/llm/health', (_req, res) => {
-        writeJson(res, 200, { enabled: Boolean(apiKey), model })
-      })
-
       server.middlewares.use('/api/chat', async (req, res) => {
         if (req.method !== 'POST') {
-          writeJson(res, 405, { error: 'method not allowed' })
+          sendJson(res, 405, { error: 'method not allowed' })
           return
         }
         if (!apiKey) {
-          writeJson(res, 503, { error: 'LLM 未配置（缺少 OPENAI_API_KEY）' })
+          sendJson(res, 503, { error: 'LLM 未配置（缺少 OPENAI_API_KEY）' })
           return
         }
 
@@ -82,7 +54,7 @@ export function deepseekLlm(options: LlmPluginOptions): Plugin {
           const body = JSON.parse(await readBody(req)) as { messages?: ChatTurn[] }
           messages = Array.isArray(body.messages) ? body.messages.slice(-16) : []
         } catch {
-          writeJson(res, 400, { error: 'bad request' })
+          sendJson(res, 400, { error: 'bad request' })
           return
         }
 
@@ -110,13 +82,13 @@ export function deepseekLlm(options: LlmPluginOptions): Plugin {
             signal: abort.signal,
           })
         } catch (error) {
-          writeJson(res, 502, { error: `上游连接失败: ${(error as Error).message}` })
+          sendJson(res, 502, { error: `上游连接失败: ${(error as Error).message}` })
           return
         }
 
         if (!upstream.ok || !upstream.body) {
           const detail = await upstream.text().catch(() => '')
-          writeJson(res, 502, { error: `上游返回 ${upstream.status}`, detail: detail.slice(0, 500) })
+          sendJson(res, 502, { error: `上游返回 ${upstream.status}`, detail: detail.slice(0, 500) })
           return
         }
 

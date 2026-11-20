@@ -47,9 +47,9 @@ npm run preview   # 预览构建产物（没有代理，会自动回落本地模
  └─ ws /api/asr · ws /api/tts · fetch /api/chat
         ↕
 Vite 插件（本地代理，Key 只在这里）
- ├─ server/asrPlugin.ts         → 百炼 Fun-ASR 实时识别
- ├─ server/ttsPlugin.ts         → 百炼 Qwen-Audio-TTS（PCM + 字级时间戳）
- └─ server/llmPlugin.ts         → api.deepseek.com（SSE 透传）
+ ├─ server/asr.ts               → 百炼 Fun-ASR 实时识别
+ ├─ server/tts.ts               → 百炼 Qwen-Audio-TTS（PCM + 字级时间戳）
+ └─ server/llm.ts               → api.deepseek.com（SSE 透传）
 ```
 
 ## 关键实现（也是踩过的坑）
@@ -101,7 +101,6 @@ VRoid 的 `happy` 预设会眯眼，给 0.75 以上她会一直闭着眼像睡�
 | `ASR_CONTEXT` | `小岚` | 领域词表，帮专有名词识别 |
 | `VAD_THRESHOLD` | `0.02` | RMS 门限。安静房间 0.02；吵就调高 |
 | `VAD_SILENCE_MS` | `700` | 静音多久算说完。400 灵敏，800 从容 |
-| `ASR_CONTEXT` | `小岚` | 领域词表，帮专有名词识别 |
 | `DASHSCOPE_TTS_MODEL` | `qwen-audio-3.1-tts-flash` | 语音合成模型 |
 | `DASHSCOPE_TTS_VOICE` | `longanhuan_v3.1` | 音色 |
 
@@ -109,22 +108,33 @@ VRoid 的 `happy` 预设会眯眼，给 0.75 以上她会一直闭着眼像睡�
 
 ```
 src/
-  avatar/            # 渲染、骨骼、每帧动作
-  speech/
-    MicAsr.ts        # 麦克风 + VAD + ASR 会话
-    CloudTts.ts      # TTS：PCM 排队 + 口型时钟
-    SpeechController.ts  # 本地回落
-    visemes.ts       # 韵母/时间戳 → 口型
-  chat/
-    emotion.ts       # 情绪标签解析（含流式半截标签）
-    llm.ts           # SSE 解析 + 文本清洗
-    mockBrain.ts     # 无 LLM 时兜底
+  app/
+    App.tsx                    # 只负责布局（~100 行）
+    useCapabilities.ts         # /api/health → 三套能力开关
+    useDigitalHumanSession.ts  # 对话 / 语音引擎 / 麦克风
+  character/                   # 渲染、骨骼、每帧动作、手势数学
+  audio/
+    engines/                   # SpeechEngine 接口 + CloudTts/BrowserTts + 工厂
+    mic/MicAsr.ts              # 麦克风 + VAD + ASR 会话
+    visemes.ts  vad.ts
+  conversation/
+    pipeline.ts                # token → 净文本 / 情绪 / 语音增量（纯函数）
+    emotion.ts  llm.ts  mock.ts  text.ts
   components/ChatPanel.tsx
+  shared/types.ts
 server/
-  asrPlugin.ts · ttsPlugin.ts · llmPlugin.ts
+  index.ts  health.ts  tts.ts  asr.ts  llm.ts
+  shared/                      # 百炼域名/鉴权、WS 挂载、HTTP 小工具
 public/models/sample.vrm
 ```
 
+## 测试
+
+```bash
+npm test    # vitest：情绪解析 / 对话管线 / 口型时间轴 / VAD
+```
+
+纯逻辑都拆到了不依赖 React/DOM 的模块里，所以可以直接跑单测。
 ## 成本
 
 | 项目 | 单价 | 说明 |

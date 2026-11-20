@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import type { Message, Phase } from '../chat/types'
+import type { Message, Phase } from '../shared/types'
 
 type Props = {
   messages: Message[]

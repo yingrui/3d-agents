@@ -8,7 +8,7 @@
  * 关键点：时间轴的单位是「音频秒」，不是「字符数」。
  */
 import { pinyin } from 'pinyin-pro'
-import type { VisemeShape } from '../avatar/driver'
+import type { VisemeShape } from '../character/driver'
 
 export type MouthEvent = {
   start: number

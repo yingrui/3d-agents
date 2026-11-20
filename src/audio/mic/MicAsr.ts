@@ -8,6 +8,8 @@
  * 这样「什么时候该回答」完全可控，也才能在 TTS 播放时做打断。
  */
 
+import { downsampleToPcm16, rms } from '../vad'
+
 export type MicOptions = {
   threshold: number
   silenceMs: number
@@ -25,30 +27,6 @@ export type MicCallbacks = {
 const CHUNK = 2048
 const PREROLL_MS = 400
 const MIN_SPEECH_CHUNKS = 2
-
-function downsampleToPcm16(input: Float32Array, inRate: number, outRate: number): Int16Array {
-  if (inRate === outRate) {
-    const out = new Int16Array(input.length)
-    for (let i = 0; i < input.length; i++) {
-      const v = Math.max(-1, Math.min(1, input[i]))
-      out[i] = v < 0 ? v * 0x8000 : v * 0x7fff
-    }
-    return out
-  }
-
-  const ratio = inRate / outRate
-  const length = Math.max(1, Math.floor(input.length / ratio))
-  const out = new Int16Array(length)
-  for (let i = 0; i < length; i++) {
-    const start = Math.floor(i * ratio)
-    const end = Math.min(input.length, Math.max(start + 1, Math.floor((i + 1) * ratio)))
-    let sum = 0
-    for (let j = start; j < end; j++) sum += input[j]
-    const v = Math.max(-1, Math.min(1, sum / (end - start)))
-    out[i] = v < 0 ? v * 0x8000 : v * 0x7fff
-  }
-  return out
-}
 
 export class MicAsr {
   private options: MicOptions
@@ -169,14 +147,11 @@ export class MicAsr {
   private onAudio(input: Float32Array, inputRate: number) {
     if (!this.running) return
 
-    let energy = 0
-    for (let i = 0; i < input.length; i++) energy += input[i] * input[i]
-    const rms = Math.sqrt(energy / input.length)
-
+    const level = rms(input)
     const threshold = this.options.threshold * (this.ttsActive ? 2.5 : 1)
     const need = this.ttsActive ? 4 : MIN_SPEECH_CHUNKS
 
-    if (rms > threshold) {
+    if (level > threshold) {
       this.above += 1
       this.below = 0
     } else {

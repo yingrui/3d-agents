@@ -9,8 +9,9 @@
  * 关键：口型时间轴和音频共用同一个时钟（AudioContext.currentTime），
  * 所以不会出现「声音和嘴对不上」的漂移。
  */
-import { driver, resetMouth } from '../avatar/driver'
-import { findEvent, timelineFromWords, type MouthEvent, type WordTiming } from './visemes'
+import { driver, resetMouth } from '../../character/driver'
+import type { SpeechEngine } from './types'
+import { findEvent, timelineFromWords, type MouthEvent, type WordTiming } from '../visemes'
 
 type StateListener = (speaking: boolean) => void
 
@@ -27,7 +28,7 @@ type ServerMessage =
   | { type: 'done' }
   | { type: 'error'; message: string }
 
-export class CloudTts {
+export class CloudTts implements SpeechEngine {
   private ws: WebSocket | null = null
   private ctx: AudioContext
   private gain: GainNode
@@ -45,7 +46,7 @@ export class CloudTts {
   private doneTimer = 0
   private sampleRate = 22050
 
-  private speaking = false
+  private _speaking = false
   private cancelled = false
 
   onError?: (message: string) => void
@@ -57,8 +58,8 @@ export class CloudTts {
     this.gain.connect(this.ctx.destination)
   }
 
-  get isSpeaking() {
-    return this.speaking
+  get speaking() {
+    return this._speaking
   }
 
   onState(listener: StateListener): () => void {
@@ -202,7 +203,7 @@ export class CloudTts {
   }
 
   private loop = () => {
-    if (!this.speaking) return
+    if (!this._speaking) return
     if (this.hasAnchor) {
       const time = this.ctx.currentTime - this.anchor
       const event = findEvent(this.events, time)
@@ -222,8 +223,8 @@ export class CloudTts {
   }
 
   private stopSpeaking() {
-    if (!this.speaking) return
-    this.speaking = false
+    if (!this._speaking) return
+    this._speaking = false
     cancelAnimationFrame(this.raf)
     if (this.doneTimer) {
       clearTimeout(this.doneTimer)
@@ -254,8 +255,8 @@ export class CloudTts {
   }
 
   private setSpeaking(value: boolean) {
-    if (this.speaking === value) return
-    this.speaking = value
+    if (this._speaking === value) return
+    this._speaking = value
     for (const listener of this.listeners) listener(value)
   }
 

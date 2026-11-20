@@ -14,8 +14,9 @@
  *   ← { type:'done' } / { type:'error', message }
  */
 import type { Plugin } from 'vite'
-import { WebSocketServer, WebSocket, type RawData } from 'ws'
-import { randomUUID } from 'node:crypto'
+import { WebSocket, type RawData } from 'ws'
+import { createTaskId, dashscopeHeaders, dashscopeWsUrl } from './shared/dashscope'
+import { attachWebSocket } from './shared/ws'
 
 export type TtsPluginOptions = {
   apiKey?: string
@@ -31,7 +32,7 @@ type WordTiming = { text: string; begin: number; end: number }
 
 class TtsSession {
   private upstream: WebSocket | null = null
-  private taskId = randomUUID()
+  private taskId = createTaskId()
   private pending: string[] = []
   private started = false
   private ended = false
@@ -79,12 +80,8 @@ class TtsSession {
   private connect() {
     if (this.upstream) return
     const { apiKey, workspaceId, model, voice } = this.options
-    const url = workspaceId
-      ? `wss://${workspaceId}.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference`
-      : 'wss://dashscope.aliyuncs.com/api-ws/v1/inference'
-
-    const upstream = new WebSocket(url, {
-      headers: { Authorization: `bearer ${apiKey}` },
+    const upstream = new WebSocket(dashscopeWsUrl(workspaceId), {
+      headers: dashscopeHeaders(apiKey),
     })
     this.upstream = upstream
 
@@ -253,33 +250,12 @@ export function dashscopeTts(options: TtsPluginOptions): Plugin {
   return {
     name: 'dashscope-tts',
     configureServer(server) {
-      server.middlewares.use('/api/tts/health', (_req, res) => {
-        res.setHeader('content-type', 'application/json')
-        res.end(
-          JSON.stringify({
-            enabled: Boolean(resolved.apiKey),
-            model: resolved.model,
-            voice: resolved.voice,
-            endpoint: resolved.workspaceId ? 'workspace' : 'legacy',
-          }),
-        )
-      })
-
       if (!resolved.apiKey) {
         server.config.logger.warn('[tts] 未配置 DASHSCOPE_API_KEY，语音回落到浏览器本地合成')
         return
       }
 
-      const wss = new WebSocketServer({ noServer: true })
-      const onUpgrade = (req: import('node:http').IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => {
-        const { pathname } = new URL(req.url ?? '/', 'http://localhost')
-        if (pathname !== '/api/tts') return
-        wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req))
-      }
-
-      server.httpServer?.on('upgrade', onUpgrade)
-      server.httpServer?.on('close', () => wss.close())
-      wss.on('connection', (client) => new TtsSession(client, resolved))
+      attachWebSocket(server, '/api/tts', (client) => new TtsSession(client, resolved))
 
       server.config.logger.info(
         `[tts] 阿里云百炼已就绪 · ${resolved.model} · ${resolved.voice} (${resolved.workspaceId ? 'workspace 域名' : 'legacy 域名'})`,

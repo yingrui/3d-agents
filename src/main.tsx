@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
-import App from './App'
-import { driver } from './avatar/driver'
+import App from './app/App'
+import { driver } from './character/driver'
 import './styles.css'
 
 const root = document.getElementById('root')

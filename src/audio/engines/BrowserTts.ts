@@ -6,8 +6,10 @@
  * 2. 音频时钟为准：口型时间轴相对「本句音频起点」，用 onboundary 校正漂移。
  * 3. 可打断：cancel() 立即停音频、清队列、闭嘴。
  */
-import { driver, resetMouth } from '../avatar/driver'
-import { buildTimeline, findEvent, type MouthEvent } from './visemes'
+import { driver, resetMouth } from '../../character/driver'
+import { lastSentenceEnd } from '../../conversation/text'
+import { buildTimeline, findEvent, type MouthEvent } from '../visemes'
+import type { SpeechEngine } from './types'
 
 type StateListener = (speaking: boolean) => void
 
@@ -34,7 +36,7 @@ function splitSentences(text: string): string[] {
   return out
 }
 
-export class SpeechController {
+export class BrowserTts implements SpeechEngine {
   private queue: string[] = []
   private busy = false
   private generation = 0
@@ -48,8 +50,30 @@ export class SpeechController {
     this.pickVoice()
   }
 
+  private buffer = ''
+
   get speaking() {
     return this.busy
+  }
+
+  start() {
+    // 浏览器合成没有会话的概念，start 是空操作
+  }
+
+  /** 流式喂文本：内部攒到句末再入队 */
+  feed(text: string) {
+    this.buffer += text
+    const cut = lastSentenceEnd(this.buffer)
+    if (cut > 0) {
+      const chunk = this.buffer.slice(0, cut)
+      this.buffer = this.buffer.slice(cut)
+      this.enqueue(chunk)
+    }
+  }
+
+  finish() {
+    if (this.buffer.trim()) this.enqueue(this.buffer)
+    this.buffer = ''
   }
 
   onState(listener: StateListener): () => void {
@@ -65,6 +89,7 @@ export class SpeechController {
   }
 
   cancel() {
+    this.buffer = ''
     this.generation++
     this.queue = []
     if (this.synth) {

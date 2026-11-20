@@ -4,7 +4,7 @@
  * 这里刻意不用 React state —— 口型每帧都在变，用 React 重渲染会直接掉帧。
  * 上层写入「目标值」，Avatar 在 useFrame 里做平滑插值。
  */
-import type { EmotionTag } from '../chat/emotion'
+import type { EmotionTag } from '../conversation/emotion'
 
 export type VisemeShape = 'aa' | 'ih' | 'ou' | 'ee' | 'oh'
 

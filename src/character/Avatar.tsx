@@ -3,8 +3,8 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
-import type { EmotionTag } from '../chat/emotion'
 import { driver, VISEME_SHAPES, type EmotionState, type VisemeShape } from './driver'
+import { WAVE_DURATION, gestureOffset, waveOffset } from './gesture'
 
 type Props = {
   url: string
@@ -24,42 +24,6 @@ type SmoothState = {
 }
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
-
-/** 挥手：抬手 → 摆动 → 放下，用包络控制 */
-const WAVE_DURATION = 1.8
-function waveOffset(age: number) {
-  const rise = Math.min(1, age / 0.22)
-  const fall = Math.min(1, Math.max(0, (WAVE_DURATION - age) / 0.32))
-  const env = Math.max(0, Math.min(rise, fall))
-  return {
-    // 上臂抬到胸口上方约 30°，小臂再折起来，手落在头侧
-    raise: 1.5 * env,
-    bend: -1.1 * env,
-    sway: Math.sin(age * 9) * 0.14 * env,
-  }
-}
-
-/** 一次性小动作：按时间指数衰减，不需要动画片段 */
-function gestureOffset(type: EmotionTag, age: number) {
-  const decay = Math.exp(-age * 2.2)
-  switch (type) {
-    case 'happy':
-    case 'excited':
-      return { x: Math.sin(age * 9) * 0.022 * decay, y: 0, z: Math.sin(age * 9 + 1) * 0.02 * decay }
-    case 'surprised':
-      return { x: -0.13 * decay, y: 0, z: 0 }
-    case 'sad':
-      return { x: 0.12 * decay, y: 0, z: 0 }
-    case 'thinking':
-      return { x: 0.03 * decay, y: 0.13 * decay, z: 0.15 * decay }
-    case 'angry':
-      return { x: 0.06 * decay, y: 0, z: 0 }
-    case 'wave':
-      return { x: -0.02 * decay, y: 0.04 * decay, z: 0.05 * decay }
-    default:
-      return { x: 0, y: 0, z: 0.04 * decay }
-  }
-}
 
 /**
  * 一个「会呼吸、会眨眼、会看你、会对口型」的 VRM 角色。
