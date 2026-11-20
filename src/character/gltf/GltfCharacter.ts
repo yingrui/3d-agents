@@ -203,7 +203,7 @@ export class GltfCharacter implements CharacterAdapter {
     clip.tracks = clip.tracks.filter(
       (track) =>
         !/^Bip01\.(position|quaternion|scale)$/.test(track.name) &&
-        !/^Bip01_Pelvis\.quaternion$/.test(track.name),
+        !/^Bip01_(Pelvis|Spine|Spine1|Spine2|Head|Neck)\.quaternion$/.test(track.name),
     )
 
     const mixer = new THREE.AnimationMixer(this.root!)
@@ -357,23 +357,29 @@ export class GltfCharacter implements CharacterAdapter {
       const dy = camera.position.y - headPos.y
       const dz = camera.position.z - headPos.z
       const yaw = Math.max(-0.45, Math.min(0.45, Math.atan2(dx, dz)))
-      const pitch = Math.max(-0.25, Math.min(0.25, -Math.atan2(dy, Math.hypot(dx, dz))))
+      const pitch = Math.max(-0.25, Math.min(0.25, Math.atan2(dy, Math.hypot(dx, dz))))
       const k = 1 - Math.exp(-dt * 4)
       s.yaw += (yaw - s.yaw) * k
       s.pitch += (pitch - s.pitch) * k
 
       const speak = speaking ? Math.sin(t * 6.2) * 0.01 : 0
+      const idleYaw = Math.sin(t * 0.37) * 0.03
+      const idlePitch = Math.sin(t * 0.53) * 0.015
       const look = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(s.pitch + speak, s.yaw * 0.7, 0, 'YXZ'),
+        new THREE.Euler(s.pitch + speak + idlePitch, s.yaw * 0.7 + idleYaw, 0, 'YXZ'),
       )
-      head.quaternion.multiply(look)
+      const rest = this.rest.get('Bip01_Head')
+      if (rest) head.quaternion.copy(rest).multiply(look)
+      else head.quaternion.multiply(look)
     }
 
     if (neck) {
       const look = new THREE.Quaternion().setFromEuler(
         new THREE.Euler(s.pitch * 0.2, s.yaw * 0.2, 0, 'YXZ'),
       )
-      neck.quaternion.multiply(look)
+      const rest = this.rest.get('Bip01_Neck')
+      if (rest) neck.quaternion.copy(rest).multiply(look)
+      else neck.quaternion.multiply(look)
     }
 
     // ---- 呼吸：没有动画时才程序化 ----
