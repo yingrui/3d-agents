@@ -46,6 +46,8 @@ export function emotionToExpression(tag: EmotionTag): Partial<EmotionState> {
       return { relaxed: 0.5 }
     case 'shy':
       return { happy: 0.25, relaxed: 0.3 }
+    case 'wave':
+      return { happy: 0.5 }
     case 'thinking':
       return { relaxed: 0.35 }
     default:

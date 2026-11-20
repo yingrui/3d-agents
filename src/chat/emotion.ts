@@ -14,6 +14,7 @@ export const EMOTION_TAGS = [
   'thinking',
   'excited',
   'shy',
+  'wave',
 ] as const
 
 export type EmotionTag = (typeof EMOTION_TAGS)[number]

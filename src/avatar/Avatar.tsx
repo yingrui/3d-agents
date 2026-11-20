@@ -25,6 +25,20 @@ type SmoothState = {
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
 
+/** 挥手：抬手 → 摆动 → 放下，用包络控制 */
+const WAVE_DURATION = 1.8
+function waveOffset(age: number) {
+  const rise = Math.min(1, age / 0.22)
+  const fall = Math.min(1, Math.max(0, (WAVE_DURATION - age) / 0.32))
+  const env = Math.max(0, Math.min(rise, fall))
+  return {
+    // 上臂抬到胸口上方约 30°，小臂再折起来，手落在头侧
+    raise: 1.5 * env,
+    bend: -1.1 * env,
+    sway: Math.sin(age * 9) * 0.14 * env,
+  }
+}
+
 /** 一次性小动作：按时间指数衰减，不需要动画片段 */
 function gestureOffset(type: EmotionTag, age: number) {
   const decay = Math.exp(-age * 2.2)
@@ -40,6 +54,8 @@ function gestureOffset(type: EmotionTag, age: number) {
       return { x: 0.03 * decay, y: 0.13 * decay, z: 0.15 * decay }
     case 'angry':
       return { x: 0.06 * decay, y: 0, z: 0 }
+    case 'wave':
+      return { x: -0.02 * decay, y: 0.04 * decay, z: 0.05 * decay }
     default:
       return { x: 0, y: 0, z: 0.04 * decay }
   }
@@ -135,6 +151,8 @@ export function Avatar({ url, onProgress, onLoaded, onError }: Props) {
     const em = vrm.expressionManager
     const camera = state.camera
 
+    const age = performance.now() / 1000 - driver.gesture.start
+
     // ---- 视线：头和脖子跟着镜头，眼睛再补一点微扫视 ----
     const head = vrm.humanoid.getNormalizedBoneNode('head')
     const neck = vrm.humanoid.getNormalizedBoneNode('neck')
@@ -153,7 +171,6 @@ export function Avatar({ url, onProgress, onLoaded, onError }: Props) {
       s.pitch += (pitch - s.pitch) * k
 
       const speak = driver.speaking ? 1 : 0
-      const age = performance.now() / 1000 - driver.gesture.start
       const gesture = driver.gesture.start ? gestureOffset(driver.gesture.type, age) : { x: 0, y: 0, z: 0 }
       head.rotation.set(
         s.pitch + Math.sin(t * 0.9) * 0.012 + Math.sin(t * 6.2) * 0.006 * speak + gesture.x,
@@ -172,10 +189,20 @@ export function Avatar({ url, onProgress, onLoaded, onError }: Props) {
       spine.rotation.y = Math.sin(t * 0.31) * 0.014
     }
 
-    // ---- 手臂自然下垂 + 轻微摆动 ----
+    // ---- 手臂：自然下垂 + 轻微摆动；挥手时临时抬起右臂 ----
     const sway = Math.sin(t * 0.8) * 0.02
+    const waving = driver.gesture.type === 'wave' && age < WAVE_DURATION ? waveOffset(age) : null
     vrm.humanoid.getNormalizedBoneNode('leftUpperArm')?.rotation.set(0.05, 0.04 + sway, -1.24 + sway * 0.5)
-    vrm.humanoid.getNormalizedBoneNode('rightUpperArm')?.rotation.set(0.05, -0.04 - sway, 1.24 - sway * 0.5)
+    if (waving) {
+      vrm.humanoid
+        .getNormalizedBoneNode('rightUpperArm')
+        ?.rotation.set(0.05, -0.04, 1.24 - waving.raise + waving.sway)
+    } else {
+      vrm.humanoid.getNormalizedBoneNode('rightUpperArm')?.rotation.set(0.05, -0.04 - sway, 1.24 - sway * 0.5)
+    }
+    vrm.humanoid
+      .getNormalizedBoneNode('rightLowerArm')
+      ?.rotation.set(0, 0.14, waving?.bend ?? 0)
 
     // ---- 眨眼：随机间隔，偶尔连眨 ----
     if (t > s.nextBlink) {

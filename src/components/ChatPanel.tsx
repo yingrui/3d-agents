@@ -134,7 +134,7 @@ export function ChatPanel({
         <p className="footnote">
           {llmMode === 'cloud' && ttsMode === 'cloud'
             ? micAvailable
-              ? 'Stage 5 · 语音对话 + 情绪表情：Fun-ASR → DeepSeek（带情绪标签）→ 百炼 TTS → 口型/表情'
+              ? 'Stage 6 · 语音对话 + 情绪表情 + 挥手：Fun-ASR → DeepSeek（情绪/动作标签）→ TTS → 口型/表情/动作'
               : 'Stage 3 · DeepSeek 流式对话 · 百炼 qwen-audio-3.1-tts-flash · 口型来自字级时间戳'
             : llmMode === 'cloud'
               ? 'DeepSeek 对话 · 语音回落到浏览器合成（未配置 DASHSCOPE_API_KEY）'
